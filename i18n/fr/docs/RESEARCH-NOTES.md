@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="921dff9e9ab4" -->
+<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="14442626101a" -->
 
 > Traduction française de [docs/RESEARCH-NOTES.md](../../../docs/RESEARCH-NOTES.md). **La version anglaise fait foi.**
 
@@ -2479,3 +2479,24 @@ chacune.
 |---|---|---|
 | « The latest release is the most recent non-prerelease, non-draft release, sorted by the `created_at` attribute » ; un brouillon ou une pré-version ne peut pas être marqué latest | [API REST GitHub, releases](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) | 2026-10-07 |
 | Le secours [`embedding-model-835ad140`](https://github.com/so-keyldzn/oxyn/releases/tag/embedding-model-835ad140) est publié (2026-10-07T16:45:34Z), `prerelease: true`, `draft: false`. Assets et leurs empreintes GitHub : `model.safetensors` 194 889 568 octets `sha256:f3ea88b2…903be`, `tokenizer.json` 25 301 672 octets `sha256:4f2842d5…1582f` — tous deux égaux aux valeurs épinglées —, `LICENSE-Apache-2.0.txt` 11 358 octets, `NOTICE.md` 891 octets. La dernière release est restée `v0.0.7`, et `releases/latest/download/latest.json` répond 200 | `gh api repos/so-keyldzn/oxyn/releases/tags/embedding-model-835ad140`, `…/releases/latest` ; `curl -L` | 2026-10-07 |
+
+## Suivi de l’audit — vérifié le 2026-10-20
+
+Faits lus en appliquant les décisions du mainteneur sur les questions ouvertes
+de l’audit. Cette section ne contient que ce qui a été lu le 2026-10-20 ; les
+lignes ailleurs dans ce fichier gardent la date de leur lecture.
+
+### Runners hébergés par GitHub sur un dépôt public
+
+| Fait | Source | Vérifié le |
+|---|---|---|
+| « Use of the standard GitHub-hosted runners is free and unlimited on public repositories. » Dans le tableau des runners standard pour les dépôts publics de la page, `macos-latest` est un runner macOS de 3 CPU (M1), 7 Go de RAM, 14 Go de SSD, arm64 | [référence des runners hébergés par GitHub](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), HTML brut récupéré par `curl -L` et lu | 2026-10-20 |
+| `so-keyldzn/oxyn` est public : `private` vaut `false` et `visibility` vaut `public` | `gh api repos/so-keyldzn/oxyn --jq '.private,.visibility'` | 2026-10-20 |
+
+Pour les pull requests, ces lignes remplacent « D'où Linux seul sur les PR » (CI
+et livraison GitHub, 2026-09-24) et « les pull requests ne construisent que
+Linux x86_64 » (sqlite-vec, 2026-10-06). Les deux restent vraies comme trace de leur propre
+date : le quota qui a causé la première a été épuisé quand le dépôt était privé.
+`qualite.yml` exécute de nouveau la matrice macOS sur les pull requests, comme
+l’a décidé l’amendement du 2026-10-20 à
+[ADR-0045](adr/0045-ci-selective-sur-les-pull-requests.md).

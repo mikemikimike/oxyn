@@ -41,7 +41,7 @@ Checked on 2026-09-05, interface on 2026-09-15 — [details and sources](docs/RE
 
 | | Version | Worth knowing |
 |---|---|---|
-| Rust | pinned by `rust-toolchain.toml` ([ADR-0008](docs/adr/0008-chaine-outils-rust.md)) | the dev machine runs `1.89.0`, stable is `1.98.1` |
+| Rust | pinned by `rust-toolchain.toml` ([ADR-0008](docs/adr/0008-chaine-outils-rust.md)) | the exact channel is in that file, its dated check in [RESEARCH-NOTES](docs/RESEARCH-NOTES.md#rust-toolchain) |
 | Edition | **2024** | requires Rust ≥ 1.85 |
 | Interface | **Tauri 2** + TanStack Start in **SPA mode** + shadcn/ui on **Base UI** ([ADR-0029](docs/adr/0029-interface-tauri-shadcn.md)) | `apps/desktop` (pnpm) served by `crates/oxyn-desktop`; no server, the backend is Rust |
 | Component tests | Storybook 10 + `addon-vitest` + `addon-a11y` | a story is a test, axe included; Vitest stays on **4** |

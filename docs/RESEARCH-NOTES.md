@@ -2452,3 +2452,24 @@ statistics, release build, macOS 26.2, Apple M1 Max, two runs each.
 |---|---|---|
 | "The latest release is the most recent non-prerelease, non-draft release, sorted by the `created_at` attribute"; drafts and pre-releases cannot be set as latest | [GitHub REST API, releases](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) | 2026-10-07 |
 | The fallback [`embedding-model-835ad140`](https://github.com/so-keyldzn/oxyn/releases/tag/embedding-model-835ad140) is published (2026-10-07T16:45:34Z), `prerelease: true`, `draft: false`. Assets and their GitHub digests: `model.safetensors` 194 889 568 bytes `sha256:f3ea88b2…903be`, `tokenizer.json` 25 301 672 bytes `sha256:4f2842d5…1582f` — both equal to the pinned values —, `LICENSE-Apache-2.0.txt` 11 358 bytes, `NOTICE.md` 891 bytes. The latest release stayed `v0.0.7`, and `releases/latest/download/latest.json` answers 200 | `gh api repos/so-keyldzn/oxyn/releases/tags/embedding-model-835ad140`, `…/releases/latest`; `curl -L` | 2026-10-07 |
+
+## Audit follow-up — checked on 2026-10-20
+
+Facts read while applying the maintainer's decisions on the audit's open
+questions. This section holds only what was read on 2026-10-20; rows elsewhere
+in this file keep the date they were read.
+
+### GitHub-hosted runners on a public repository
+
+| Fact | Source | Checked on |
+|---|---|---|
+| "Use of the standard GitHub-hosted runners is free and unlimited on public repositories." In the page's table of standard runners for public repositories, `macos-latest` is a macOS runner with 3 CPUs (M1), 7 GB of RAM, 14 GB of SSD, arm64 | [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), raw HTML fetched with `curl -L` and read | 2026-10-20 |
+| `so-keyldzn/oxyn` is public: `private` is `false` and `visibility` is `public` | `gh api repos/so-keyldzn/oxyn --jq '.private,.visibility'` | 2026-10-20 |
+
+For pull requests, these rows supersede "Hence Linux only on PRs" (CI and
+GitHub delivery, 2026-09-24) and "pull requests build Linux x86_64 only"
+(sqlite-vec, 2026-10-06). Both stay true as the record of their own date: the
+quota that caused the first was exhausted while the repository was private.
+`qualite.yml` runs the macOS matrix on pull requests again, as decided by the
+amendment of 2026-10-20 to
+[ADR-0045](adr/0045-ci-selective-sur-les-pull-requests.md).

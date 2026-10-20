@@ -155,7 +155,7 @@ fn real_model_puts_billing_first_in_french_and_in_english_within_the_deadline() 
             &scores,
         );
         eprintln!("« {question} » scored {total} relations in {elapsed:?}");
-        for path in wanted.iter().take(BILLING.len() + 2) {
+        for path in wanted.iter().take(BILLING.len()) {
             eprintln!("  {path}  {:.3}", scores.get(path).unwrap_or(f32::NAN));
         }
         assert!(
@@ -167,21 +167,27 @@ fn real_model_puts_billing_first_in_french_and_in_english_within_the_deadline() 
             first.is_some_and(|table| BILLING.contains(&table)),
             "« {question} »: a billing table comes first, not {first:?}"
         );
-        // Lexical matches rank first, by ADR-0056's rule, and the lexical
-        // search finds « are » inside « warehouses »: in English, the two
-        // warehouse tables come before the rest of billing — on their
-        // lexical score, their cosine is lower. Two places of slack for that,
-        // no more.
+        // Lexical matches rank first, by ADR-0056's rule, so every billing
+        // table must come before any other one: no slack. Before #216 the
+        // lexical search found « are » inside « warehouses », and in English
+        // the two warehouse tables took places in the top 8 on their lexical
+        // score, their cosine being lower — hence the two places of slack
+        // this check used to allow. That match is gone (a term has to be a
+        // word of the name or start one, and a word of a question needs four
+        // characters to start one). Measured on 2026-10-20 with
+        // granite-embedding-97m-multilingual-r2, both languages: the first
+        // six relations are exactly the six billing tables, the seventh is
+        // warehouse.purchase_orders (French) or public.orders (English).
         let leading: Vec<&str> = wanted
             .iter()
-            .take(BILLING.len() + 2)
+            .take(BILLING.len())
             .filter_map(CatalogPath::relation)
             .collect();
         for table in BILLING {
             assert!(
                 leading.contains(table),
                 "« {question} »: {table} is not among the first {}",
-                BILLING.len() + 2
+                BILLING.len()
             );
         }
     }

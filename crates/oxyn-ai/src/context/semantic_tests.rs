@@ -53,6 +53,23 @@ fn selected(cache: &CatalogCache, focus: &str, semantic: SemanticScores) -> Vec<
 /// No term of this question matches a name of [`listed`]'s tables.
 const FRENCH: &str = "quels clients ont commandé hier ?";
 
+/// The question of the issue behind these tests: an ordinary English question
+/// whose short words (`are`) used to reach unrelated tables.
+const UNPAID: &str = "which invoices are unpaid?";
+
+/// A catalog where `are` is the start of `area_codes`, and where only
+/// `invoices` is named in [`UNPAID`]: the other billing tables are found by
+/// meaning alone.
+const BILLING_AND_THE_REST: [&str; 7] = [
+    "area_codes",
+    "credit_notes",
+    "invoice_lines",
+    "invoices",
+    "payments",
+    "warehouse_stock_movements",
+    "warehouses",
+];
+
 #[test]
 fn a_question_that_matches_nothing_is_ordered_by_meaning() {
     // The case the ADR exists for: a French question against English names
@@ -303,4 +320,69 @@ fn a_score_adds_no_text_and_the_debug_names_nothing() {
         .build();
     assert_eq!(by_path.prompt_block(), by_meaning.prompt_block());
     assert_eq!(by_meaning.tier(), PrivacyTier::Metadata);
+}
+
+#[test]
+fn which_invoices_are_unpaid_puts_billing_before_the_warehouses() {
+    // The model-free stand-in for the end-to-end test of ADR-0056: the
+    // cosines are the ones measured with the real model, 0.885 for billing
+    // and 0.772 for the warehouses. Before the fix, `are` matched
+    // `warehouses` lexically and the lexical rank, which comes first, put it
+    // above the billing tables.
+    let cache = listed(&BILLING_AND_THE_REST);
+    let semantic = scores(&[
+        ("credit_notes", 0.885),
+        ("invoice_lines", 0.885),
+        ("invoices", 0.885),
+        ("payments", 0.885),
+        ("warehouse_stock_movements", 0.772),
+        ("warehouses", 0.772),
+        ("area_codes", 0.1),
+    ]);
+    assert_eq!(
+        selected(&cache, UNPAID, semantic),
+        paths(&[
+            "invoices",
+            "credit_notes",
+            "invoice_lines",
+            "payments",
+            "warehouse_stock_movements",
+            "warehouses",
+            "area_codes",
+        ]),
+        "`invoices` leads on its name; the other billing tables follow on \
+         their equal cosine, then by path; the warehouses come after them \
+         and `area_codes`, the least close, last"
+    );
+}
+
+#[test]
+fn a_short_question_word_pulls_no_table_by_its_prefix() {
+    // No scores: the selection is the lexical one alone. `are` would be a
+    // prefix of `area_codes`, `which` and `unpaid` name nothing, so `invoices`
+    // is the only match. The rule lives in the one selection the gateway and
+    // the host share, not in a filter next to it (I-04).
+    let cache = listed(&BILLING_AND_THE_REST);
+    assert_eq!(
+        selected(&cache, UNPAID, SemanticScores::new()),
+        paths(&["invoices"])
+    );
+    assert_eq!(
+        wanted_relations(&cache, &ContextPolicy::default(), UNPAID, &[], true),
+        paths(&["invoices"]),
+        "the host loads what the gate describes"
+    );
+}
+
+#[test]
+fn a_short_question_word_still_finds_the_table_named_after_it() {
+    // The flip side of the previous rule: a short word is dropped as a
+    // *prefix* only. A table named `tx`, or having `tx` as a word, is found,
+    // and `in` pulls no `invoices`.
+    let cache = listed(&["invoices", "tx", "tx_log"]);
+    assert_eq!(
+        selected(&cache, "what is in tx?", SemanticScores::new()),
+        paths(&["tx", "tx_log"]),
+        "the whole name first, then the name that has it as a word"
+    );
 }

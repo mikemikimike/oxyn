@@ -2513,6 +2513,17 @@ otherwise the latest version and its publication date.
   (`npm view eslint@9.39.5 deprecated`, 2026-10-20). `@tanstack/eslint-config@0.4.0`
   declares the peer `eslint ^9.0.0 || ^10.0.0` and `eslint-plugin-storybook@10.6.0`
   declares `eslint >=8`. Recorded, not acted on.
+- `@tanstack/react-start` is the one row of the npm table below that the check did
+  not report: the TanStack row of the front-end table above already names it, but
+  with two other packages on the same line. It has its own row here because a bump
+  of the TanStack family changes several versions at once and this file records
+  one package per row. On 2026-10-20 `pnpm audit --prod` (the `audit-npm` step of
+  CI run `39470967933`) reports the critical advisory
+  [GHSA-qx66-fv34-fjm8](https://github.com/advisories/GHSA-qx66-fv34-fjm8)
+  against `@tanstack/react-start` `>=1.143.12 <1.168.60`, patched in `1.168.60`
+  (published 2026-09-30), and against the transitive `@tanstack/start-server-core`
+  `>=1.143.12 <1.169.39`. The pin `1.168.54` is inside the vulnerable range:
+  recorded, not bumped here, and the bump moves the TanStack packages together.
 
 Every pin the check reported was readable from its registry, so none sits under an
 exemption.
@@ -2555,6 +2566,7 @@ exemption.
 | `@tanstack/react-form` | `1.33.5` | same | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-form) | 2026-10-20 |
 | `@tanstack/react-pacer` | `0.23.0` | `0.24.1` (2026-10-05) | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-pacer) | 2026-10-20 |
 | `@tanstack/react-router` | `1.170.36` | `1.170.45` (2026-10-16) | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-router) | 2026-10-20 |
+| `@tanstack/react-start` | `1.168.54` | `1.169.3` (2026-10-16) | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-start) | 2026-10-20 |
 | `@tanstack/react-virtual` | `3.14.13` | `3.14.21` (2026-10-16) | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-virtual) | 2026-10-20 |
 | `@tauri-apps/plugin-dialog` | `2.7.3` | `2.8.3` (2026-10-14) | [npm registry](https://registry.npmjs.org/@tauri-apps%2Fplugin-dialog) | 2026-10-20 |
 | `class-variance-authority` | `0.7.1` | same | [npm registry](https://registry.npmjs.org/class-variance-authority) | 2026-10-20 |

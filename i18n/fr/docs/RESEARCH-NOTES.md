@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="865b5687cab9" -->
+<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="8a53ffc18ff5" -->
 
 > Traduction française de [docs/RESEARCH-NOTES.md](../../../docs/RESEARCH-NOTES.md). **La version anglaise fait foi.**
 
@@ -2547,6 +2547,19 @@ version, sinon la dernière version et sa date de publication.
   `@tanstack/eslint-config@0.4.0` déclare le pair `eslint ^9.0.0 || ^10.0.0` et
   `eslint-plugin-storybook@10.6.0` déclare `eslint >=8`. Consigné, sans suite
   donnée.
+- `@tanstack/react-start` est la seule ligne du tableau npm ci-dessous que le
+  contrôle n'a pas signalée : la ligne TanStack du tableau du front ci-dessus la
+  nomme déjà, mais avec deux autres paquets sur la même ligne. Elle a ici sa
+  propre ligne parce qu'une montée de version de la famille TanStack change
+  plusieurs versions à la fois et que ce fichier consigne un paquet par ligne. Le
+  2026-10-20, `pnpm audit --prod` (l'étape `audit-npm` de la CI, exécution
+  `39470967933`) signale l'avis critique
+  [GHSA-qx66-fv34-fjm8](https://github.com/advisories/GHSA-qx66-fv34-fjm8)
+  contre `@tanstack/react-start` `>=1.143.12 <1.168.60`, corrigé en `1.168.60`
+  (publiée le 2026-09-30), et contre `@tanstack/start-server-core`, transitive,
+  `>=1.143.12 <1.169.39`. L'épinglage `1.168.54` est dans la plage vulnérable :
+  consigné, pas relevé ici, et la montée de version déplace les paquets TanStack
+  ensemble.
 
 Chaque version signalée par le contrôle était lisible dans son registre : aucune
 ne figure donc sous une exemption.
@@ -2589,6 +2602,7 @@ ne figure donc sous une exemption.
 | `@tanstack/react-form` | `1.33.5` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-form) | 2026-10-20 |
 | `@tanstack/react-pacer` | `0.23.0` | `0.24.1` (2026-10-05) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-pacer) | 2026-10-20 |
 | `@tanstack/react-router` | `1.170.36` | `1.170.45` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-router) | 2026-10-20 |
+| `@tanstack/react-start` | `1.168.54` | `1.169.3` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-start) | 2026-10-20 |
 | `@tanstack/react-virtual` | `3.14.13` | `3.14.21` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-virtual) | 2026-10-20 |
 | `@tauri-apps/plugin-dialog` | `2.7.3` | `2.8.3` (2026-10-14) | [registre npm](https://registry.npmjs.org/@tauri-apps%2Fplugin-dialog) | 2026-10-20 |
 | `class-variance-authority` | `0.7.1` | idem | [registre npm](https://registry.npmjs.org/class-variance-authority) | 2026-10-20 |

@@ -1,10 +1,10 @@
-<!-- oxyn-translation source="docs/adr/0037-dialogue-natif-pour-les-confirmations-critiques.md" sha256="6a4b2188804a" -->
+<!-- oxyn-translation source="docs/adr/0037-dialogue-natif-pour-les-confirmations-critiques.md" sha256="e87443c30193" -->
 
 > Traduction française de [docs/adr/0037-dialogue-natif-pour-les-confirmations-critiques.md](../../../../docs/adr/0037-dialogue-natif-pour-les-confirmations-critiques.md). **La version anglaise fait foi.**
 
 # ADR-0037 — Une décision critique se confirme dans un dialogue natif de l'hôte, jamais dans la webview
 
-**Statut :** proposé · **Date :** 2026-09-25
+**Statut :** accepté (2026-10-20) · **Date :** 2026-09-25
 
 **Précise :** [ADR-0029](0029-interface-tauri-shadcn.md), dont les Conséquences
 nomment la surface nouvelle — « une XSS dans la webview atteint les commandes

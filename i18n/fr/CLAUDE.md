@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="CLAUDE.md" sha256="2a149006bbc1" -->
+<!-- oxyn-translation source="CLAUDE.md" sha256="b0267e997ab0" -->
 
 > Traduction française de [CLAUDE.md](../../CLAUDE.md). **La version anglaise fait foi.**
 
@@ -227,4 +227,4 @@ requis ; sur `main`, tout tourne toujours
 | `make front` | un composant sans story passante, une violation d'accessibilité, un type ou un lint faux dans `apps/desktop` |
 | `script/verifier-todo` | une marque de travail restant sans échéance |
 | `script/licences-tierces` | une dépendance npm livrée sous une licence que `deny.toml` n'accepte pas |
-| [renovate.json5](../../renovate.json5) | une version recopiée de mémoire ([I-12](#i-12)) |
+| `make versions` | une version épinglée dans `Cargo.toml` ou `apps/desktop/package.json` que [RESEARCH-NOTES](docs/RESEARCH-NOTES.md) n'enregistre pas, ou enregistre autrement ([I-12](#i-12)) |

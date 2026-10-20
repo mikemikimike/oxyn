@@ -217,4 +217,4 @@ everything always runs
 | `make front` | a component without a passing story, an accessibility violation, a wrong type or lint in `apps/desktop` |
 | `script/verifier-todo` | a remaining-work marker without a deadline |
 | `script/licences-tierces` | an npm dependency shipped under a license that `deny.toml` does not accept |
-| [renovate.json5](renovate.json5) | a version copied from memory ([I-12](#i-12)) |
+| `make versions` | a version pinned in `Cargo.toml` or `apps/desktop/package.json` that [RESEARCH-NOTES](docs/RESEARCH-NOTES.md) does not record, or records differently ([I-12](#i-12)) |

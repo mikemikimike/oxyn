@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="14442626101a" -->
+<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="865b5687cab9" -->
 
 > Traduction française de [docs/RESEARCH-NOTES.md](../../../docs/RESEARCH-NOTES.md). **La version anglaise fait foi.**
 
@@ -2500,3 +2500,125 @@ date : le quota qui a causé la première a été épuisé quand le dépôt éta
 `qualite.yml` exécute de nouveau la matrice macOS sur les pull requests, comme
 l’a décidé l’amendement du 2026-10-20 à
 [ADR-0045](adr/0045-ci-selective-sur-les-pull-requests.md).
+
+### Versions épinglées dans les manifestes
+
+`make versions` (`.claude/hooks/verifier_versions.py --manifests`) compare chaque
+version épinglée dans `[workspace.dependencies]` du `Cargo.toml` racine, et dans
+`dependencies`, `devDependencies` et `packageManager` de
+`apps/desktop/package.json`, avec ce fichier, ligne par ligne. Le 2026-10-20, il
+a trouvé 62 des 131 versions épinglées non consignées : 18 crates et 44 paquets
+npm. Elles le sont ci-dessous, un paquet par ligne, qui est la forme que le
+contrôle lit.
+
+Chaque version épinglée a été lue dans son registre le 2026-10-20. Une crate :
+l’API de crates.io (`versions[].num` contient la version épinglée,
+`crate.max_stable_version` est la dernière publiée, `versions[].created_at` sa
+date). Un paquet npm : le document du paquet dans le registre (`versions` contient
+la version épinglée, `dist-tags.latest` est la dernière publiée, `time` sa date),
+et `npm view <paquet>@<version épinglée> version` a confirmé chacun des 44. La
+version épinglée existe dans les 62 cas et aucune crate n’est retirée (*yanked*).
+La colonne *Dernière publiée* affiche `idem` quand l’épinglage est la dernière
+version, sinon la dernière version et sa date de publication.
+
+- Une version épinglée qui n’est pas la dernière est consignée, pas relevée.
+  La relever est un changement à part, qui lit d’abord le journal des
+  modifications et déplace ensemble le manifeste et sa ligne
+  ([`/versions`](../claude/commands/versions.md)). Les tableaux consignent
+  l’écart, ils ne l’expliquent pas ; les faits de registre qui concernent
+  certains écarts suivent.
+- La ligne `wasmtime` `48.0.1` du tableau des MSRV (2026-09-05) est de
+  l’histoire : `48.0.5`, publiée le 2026-10-02, est ce que `Cargo.toml` épingle.
+  Son `rust-version` est `1.95.0` (API crates.io, 2026-10-20), le plancher que
+  donne le commentaire de `Cargo.toml`. `50.0.0`, publiée le 2026-10-20, déclare
+  `1.97.0`.
+- `rusqlite` `0.37.0` n’est pas répétée ici : elle est déjà consignée comme
+  épinglage délibéré, avec sa raison, dans le tableau des MSRV ci-dessus, dans le
+  commentaire de `Cargo.toml` et dans
+  [ADR-0010](adr/0010-contraintes-natives-sqlite.md).
+- `@vitest/browser` et `@vitest/coverage-v8` `4.1.11` déclarent le pair exact
+  `vitest` `4.1.11`, et `@storybook/addon-vitest@10.6.0` déclare
+  `vitest ^3.0.0 || ^4.0.0` (`npm view <paquet>@<version> peerDependencies`,
+  2026-10-20) : ils restent sur la ligne 4 avec `vitest`, comme le dit le
+  tableau npm ci-dessus.
+- npm marque `eslint@9.39.5` comme obsolète : « This version is no longer
+  supported. Please see https://eslint.org/version-support for other options. »
+  (`npm view eslint@9.39.5 deprecated`, 2026-10-20).
+  `@tanstack/eslint-config@0.4.0` déclare le pair `eslint ^9.0.0 || ^10.0.0` et
+  `eslint-plugin-storybook@10.6.0` déclare `eslint >=8`. Consigné, sans suite
+  donnée.
+
+Chaque version signalée par le contrôle était lisible dans son registre : aucune
+ne figure donc sous une exemption.
+
+#### Crates
+
+| Crate | Épinglée | Dernière publiée | Registre | Vérifié le |
+|---|---|---|---|---|
+| `async-trait` | `0.1.92` | idem | [API crates.io](https://crates.io/api/v1/crates/async-trait) | 2026-10-20 |
+| `bitflags` | `2.13.1` | `2.13.2` (2026-09-10) | [API crates.io](https://crates.io/api/v1/crates/bitflags) | 2026-10-20 |
+| `chrono` | `0.4.45` | idem | [API crates.io](https://crates.io/api/v1/crates/chrono) | 2026-10-20 |
+| `futures` | `0.3.34` | idem | [API crates.io](https://crates.io/api/v1/crates/futures) | 2026-10-20 |
+| `indexmap` | `2.14.2` | idem | [API crates.io](https://crates.io/api/v1/crates/indexmap) | 2026-10-20 |
+| `parking_lot` | `0.12.5` | idem | [API crates.io](https://crates.io/api/v1/crates/parking_lot) | 2026-10-20 |
+| `serde_json` | `1.0.151` | `1.0.154` (2026-10-11) | [API crates.io](https://crates.io/api/v1/crates/serde_json) | 2026-10-20 |
+| `smallvec` | `1.16.0` | `1.16.3` (2026-10-10) | [API crates.io](https://crates.io/api/v1/crates/smallvec) | 2026-10-20 |
+| `url` | `2.5.8` | idem | [API crates.io](https://crates.io/api/v1/crates/url) | 2026-10-20 |
+| `tempfile` | `3.27.0` | idem | [API crates.io](https://crates.io/api/v1/crates/tempfile) | 2026-10-20 |
+| `directories` | `6.0.0` | idem | [API crates.io](https://crates.io/api/v1/crates/directories) | 2026-10-20 |
+| `secrecy` | `0.10.3` | idem | [API crates.io](https://crates.io/api/v1/crates/secrecy) | 2026-10-20 |
+| `zeroize` | `1.9.0` | `1.9.1` (2026-10-06) | [API crates.io](https://crates.io/api/v1/crates/zeroize) | 2026-10-20 |
+| `schemars` | `1.2.2` | `1.2.3` (2026-10-12) | [API crates.io](https://crates.io/api/v1/crates/schemars) | 2026-10-20 |
+| `wasmtime` | `48.0.5` | `50.0.0` (2026-10-20) | [API crates.io](https://crates.io/api/v1/crates/wasmtime) | 2026-10-20 |
+| `tracing-subscriber` | `0.3.23` | idem | [API crates.io](https://crates.io/api/v1/crates/tracing-subscriber) | 2026-10-20 |
+| `insta` | `1.48.0` | `1.49.0` (2026-10-03) | [API crates.io](https://crates.io/api/v1/crates/insta) | 2026-10-20 |
+| `rstest` | `0.26.1` | `0.28.0` (2026-10-18) | [API crates.io](https://crates.io/api/v1/crates/rstest) | 2026-10-20 |
+
+#### Paquets npm
+
+| Paquet | Épinglée | Dernière publiée | Registre | Vérifié le |
+|---|---|---|---|---|
+| `@codemirror/language` | `6.12.4` | `6.13.1` (2026-10-07) | [registre npm](https://registry.npmjs.org/@codemirror%2Flanguage) | 2026-10-20 |
+| `@codemirror/state` | `6.7.4` | `6.7.6` (2026-09-22) | [registre npm](https://registry.npmjs.org/@codemirror%2Fstate) | 2026-10-20 |
+| `@codemirror/view` | `6.43.11` | `6.43.15` (2026-10-19) | [registre npm](https://registry.npmjs.org/@codemirror%2Fview) | 2026-10-20 |
+| `@date-fns/tz` | `1.5.0` | idem | [registre npm](https://registry.npmjs.org/@date-fns%2Ftz) | 2026-10-20 |
+| `@fontsource-variable/geist` | `5.3.0` | idem | [registre npm](https://registry.npmjs.org/@fontsource-variable%2Fgeist) | 2026-10-20 |
+| `@fontsource-variable/geist-mono` | `5.3.0` | idem | [registre npm](https://registry.npmjs.org/@fontsource-variable%2Fgeist-mono) | 2026-10-20 |
+| `@lezer/highlight` | `1.2.3` | `1.2.5` (2026-09-28) | [registre npm](https://registry.npmjs.org/@lezer%2Fhighlight) | 2026-10-20 |
+| `@shadcn/react` | `0.3.1` | idem | [registre npm](https://registry.npmjs.org/@shadcn%2Freact) | 2026-10-20 |
+| `@tanstack/react-form` | `1.33.5` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-form) | 2026-10-20 |
+| `@tanstack/react-pacer` | `0.23.0` | `0.24.1` (2026-10-05) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-pacer) | 2026-10-20 |
+| `@tanstack/react-router` | `1.170.36` | `1.170.45` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-router) | 2026-10-20 |
+| `@tanstack/react-virtual` | `3.14.13` | `3.14.21` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-virtual) | 2026-10-20 |
+| `@tauri-apps/plugin-dialog` | `2.7.3` | `2.8.3` (2026-10-14) | [registre npm](https://registry.npmjs.org/@tauri-apps%2Fplugin-dialog) | 2026-10-20 |
+| `class-variance-authority` | `0.7.1` | idem | [registre npm](https://registry.npmjs.org/class-variance-authority) | 2026-10-20 |
+| `cmdk` | `1.1.1` | idem | [registre npm](https://registry.npmjs.org/cmdk) | 2026-10-20 |
+| `cn` | `0.3.0` | `0.5.0` (2026-10-16) | [registre npm](https://registry.npmjs.org/cn) | 2026-10-20 |
+| `date-fns` | `4.4.0` | idem | [registre npm](https://registry.npmjs.org/date-fns) | 2026-10-20 |
+| `embla-carousel-react` | `8.6.0` | idem | [registre npm](https://registry.npmjs.org/embla-carousel-react) | 2026-10-20 |
+| `input-otp` | `1.5.0` | idem | [registre npm](https://registry.npmjs.org/input-otp) | 2026-10-20 |
+| `react-day-picker` | `10.0.1` | `10.0.2` (2026-09-30) | [registre npm](https://registry.npmjs.org/react-day-picker) | 2026-10-20 |
+| `react-resizable-panels` | `4.12.4` | `4.14.7` (2026-10-20) | [registre npm](https://registry.npmjs.org/react-resizable-panels) | 2026-10-20 |
+| `recharts` | `3.8.0` | `3.10.1` (2026-07-25) | [registre npm](https://registry.npmjs.org/recharts) | 2026-10-20 |
+| `tw-animate-css` | `1.4.0` | idem | [registre npm](https://registry.npmjs.org/tw-animate-css) | 2026-10-20 |
+| `@storybook/addon-a11y` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-a11y) | 2026-10-20 |
+| `@storybook/addon-docs` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-docs) | 2026-10-20 |
+| `@storybook/addon-vitest` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-vitest) | 2026-10-20 |
+| `@tanstack/devtools-vite` | `0.8.5` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Fdevtools-vite) | 2026-10-20 |
+| `@tanstack/eslint-config` | `0.4.0` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Feslint-config) | 2026-10-20 |
+| `@tanstack/react-devtools` | `0.10.12` | `0.10.13` (2026-09-23) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-devtools) | 2026-10-20 |
+| `@tanstack/react-query-devtools` | `5.102.8` | `5.104.5` (2026-10-19) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-query-devtools) | 2026-10-20 |
+| `@tanstack/react-router-devtools` | `1.167.2` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-router-devtools) | 2026-10-20 |
+| `@tanstack/router-plugin` | `1.168.38` | `1.168.47` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Frouter-plugin) | 2026-10-20 |
+| `@testing-library/dom` | `10.4.2` | idem | [registre npm](https://registry.npmjs.org/@testing-library%2Fdom) | 2026-10-20 |
+| `@testing-library/react` | `16.3.3` | idem | [registre npm](https://registry.npmjs.org/@testing-library%2Freact) | 2026-10-20 |
+| `@types/node` | `26.5.1` | `26.6.5` (2026-10-09) | [registre npm](https://registry.npmjs.org/@types%2Fnode) | 2026-10-20 |
+| `@types/react` | `19.3.0` | idem | [registre npm](https://registry.npmjs.org/@types%2Freact) | 2026-10-20 |
+| `@types/react-dom` | `19.3.0` | idem | [registre npm](https://registry.npmjs.org/@types%2Freact-dom) | 2026-10-20 |
+| `@vitest/browser` | `4.1.11` | `5.0.5` (2026-10-15) | [registre npm](https://registry.npmjs.org/@vitest%2Fbrowser) | 2026-10-20 |
+| `@vitest/coverage-v8` | `4.1.11` | `5.0.5` (2026-10-15) | [registre npm](https://registry.npmjs.org/@vitest%2Fcoverage-v8) | 2026-10-20 |
+| `eslint` | `9.39.5` | `10.13.0` (2026-10-16) | [registre npm](https://registry.npmjs.org/eslint) | 2026-10-20 |
+| `eslint-plugin-storybook` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/eslint-plugin-storybook) | 2026-10-20 |
+| `jsdom` | `30.0.1` | `30.1.3` (2026-10-15) | [registre npm](https://registry.npmjs.org/jsdom) | 2026-10-20 |
+| `prettier` | `3.9.6` | `3.9.10` (2026-10-10) | [registre npm](https://registry.npmjs.org/prettier) | 2026-10-20 |
+| `prettier-plugin-tailwindcss` | `0.8.1` | idem | [registre npm](https://registry.npmjs.org/prettier-plugin-tailwindcss) | 2026-10-20 |

@@ -5,7 +5,7 @@
 # of `make qualite`, split into parallel jobs so that Rust does not wait for the
 # stories:
 #
-#   controles  make socle todo front-controles
+#   controles  make socle todo versions front-controles
 #   stories    make front-tests SHARD=i/n, one job per shard
 #   rust       make front-build rust
 #
@@ -90,8 +90,8 @@ jobs:
         # actions/checkout v7.0.1
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: make socle todo
-        run: make socle todo
+      - name: make socle todo versions
+        run: make socle todo versions
 
       - name: Install Node
         # actions/setup-node v7.0.0. The 22 line satisfies vite 8.3.0

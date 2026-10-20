@@ -54,17 +54,64 @@ convinced their fix is saved.
 ## Destructive operations
 
 A confirmation clicked by reflex protects nobody. On a connection marked
-`production` ([SECURITY](SECURITY.md#connection-marking)), the
-confirmation of a write or a DDL **names the connection** and shows the exact
-SQL. The default button is never the destructive action.
+`production` ([SECURITY](SECURITY.md#connection-marking)), a write or a DDL goes
+through **two steps in a row**, and each follows its own rule:
+
+1. **The review, in the webview**: the approval dialog, or the catalog's review
+   box ([Destructive operations from the catalog](#destructive-operations-from-the-catalog)).
+   It **names the connection** and shows the **exact SQL**, as written, whole and
+   scrollable. `Cancel` takes the initial focus, the action that names the
+   connection is not focused, and Enter alone approves nothing. In this step
+   the default button is never the destructive action.
+2. **The native confirmation**, a dialog the host draws once the review is
+   approved ([The native confirmation of a write in production](#the-native-confirmation-of-a-write-in-production)).
+   It **names the connection** too, but its body shows a cut rendering of the
+   SQL, and on macOS its default button **is** the write.
+
+An agent reaches neither step on `production`: its write is a refusal, and no
+dialog opens ([I-02](../CLAUDE.md#i-02)).
 
 A review only contains the operations of a single connection. A transaction
 open on another connection has its own view, naming its connection and its
 environment; its actions do not appear in the current confirmation.
 
-The catalog's `Drop…`, `Truncate…` and `Rename…` apply this rule in an in-place
-review, described in
+The catalog's `Drop…`, `Truncate…` and `Rename…` apply the review step in an
+in-place box, described in
 [Destructive operations from the catalog](#destructive-operations-from-the-catalog).
+
+### The native confirmation of a write in production
+
+[ADR-0037](adr/0037-dialogue-natif-pour-les-confirmations-critiques.md) holds
+the reasons: a button drawn in the webview is one a script running there could
+have clicked. This dialog is composed by the backend, and has these behaviors:
+
+- **Buttons.** The confirming one reads `Write to production`; the other reads
+  `Cancel`. On macOS the confirming button is the **default button**, and Enter
+  triggers it; the plugin offers no way to designate the other one. On Windows
+  and Linux, `rfd` 0.16.0 and the plugin designate no default button; the
+  behavior is the platform toolkit's and is not verified by Oxyn (source read
+  2026-10-20).
+- **One second.** A confirmation received less than **1 s** after the host
+  displays the dialog is a refusal that consumes the decision: the write is
+  rejected and does not stay pending, and the user runs it again. From 1 s on,
+  Enter on macOS confirms the write. The second counts from the display, not
+  from the request: a dialog waiting behind another has its own.
+- **Five minutes.** The decision is refused if the dialog is not answered within
+  **5 min** of the request. Oxyn cannot close the window: a click on it after
+  the deadline is ignored.
+- **Anything else refuses**: `Cancel`, Escape, closing the window, a dialog that
+  could not open. A refusal consumes the decision.
+- **The body shows a cut, escaped rendering of the SQL, never the raw full
+  text.** After the connection (its name, `PRODUCTION`, its non-secret address
+  when it has one) and the intent with the policy's reason, it reads
+  `Statement (N characters):` with the true length, then the statement. Up to
+  **1,000 characters** it is whole; beyond, the first **500** characters, a
+  line `… M more characters …` where M is N minus 1,000, then the last **500**.
+  A newline and a tab appear as `↵` and `⇥`; any other control or invisible
+  character as `\u{XXXX}`.
+
+The exact SQL is read in the review that precedes the dialog: the approval
+dialog's "Statement to approve" region, or the catalog's review box.
 
 ## Cancellation
 
@@ -301,9 +348,11 @@ details, not in this label. The other tiers and the blocked states remain
 explicitly distinguished; this presentation does not change the rules of
 [AI-PROVIDERS](AI-PROVIDERS.md).
 
-In the confirmation of a write in production, `Cancel` receives the visible
+In the webview review of a write in production, `Cancel` receives the visible
 initial focus. The action that names the connection has a destructive style and
-is not focused. Enter alone does not validate the write.
+is not focused. Enter alone does not validate the write. This is the review
+step only: the native confirmation that follows has its own default button
+("Destructive operations").
 
 ### Reduced width
 
@@ -593,10 +642,11 @@ applies "Destructive operations" and adds:
 
 What the box submits then goes through the policy, like any SQL. On
 `production`, the approval is given in Oxyn's **native dialog**, which names the
-connection and quotes the statement
-([ADR-0037](adr/0037-dialogue-natif-pour-les-confirmations-critiques.md)): no
-second screen is inserted. Elsewhere, `Drop…` and `Truncate…` ask for approval
-in the same box, and `Rename…` runs.
+connection and shows the statement in a cut rendering
+([The native confirmation of a write in production](#the-native-confirmation-of-a-write-in-production),
+[ADR-0037](adr/0037-dialogue-natif-pour-les-confirmations-critiques.md)): no
+second screen is inserted, so the box is where the exact SQL is read. Elsewhere,
+`Drop…` and `Truncate…` ask for approval in the same box, and `Rename…` runs.
 
 An entry the engine cannot perform is greyed out with its reason — on SQLite,
 `Truncate…`; what is offered follows the capabilities declared by the driver
@@ -724,9 +774,9 @@ The form's status bar names the connection being prepared and distinguishes
 for an untested connection; another open session keeps its own explicit
 context.
 
-The preview of a confirmation keeps the full SQL and allows scrolling it with
-the mouse as well as with the arrows, Page Up/Page Down and Home/End. Enter
-alone never validates a write; Escape declines.
+The preview of the webview review keeps the full SQL and allows scrolling it
+with the mouse as well as with the arrows, Page Up/Page Down and Home/End. In
+that review, Enter alone never validates a write; Escape declines.
 
 ## Data of a selected table
 

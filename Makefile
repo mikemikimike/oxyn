@@ -185,6 +185,7 @@ socle: hooks
 	@python3 .claude/test_verifier_socle.py
 	@python3 script/test_livraison.py
 	@python3 script/test_apple_release.py
+	@python3 script/test_verifier_todo.py
 	@python3 .claude/verifier_socle.py
 
 hooks:

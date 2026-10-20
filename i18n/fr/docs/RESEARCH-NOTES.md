@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="921dff9e9ab4" -->
+<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="c95651e4ee16" -->
 
 > Traduction française de [docs/RESEARCH-NOTES.md](../../../docs/RESEARCH-NOTES.md). **La version anglaise fait foi.**
 
@@ -2479,3 +2479,68 @@ chacune.
 |---|---|---|
 | « The latest release is the most recent non-prerelease, non-draft release, sorted by the `created_at` attribute » ; un brouillon ou une pré-version ne peut pas être marqué latest | [API REST GitHub, releases](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) | 2026-10-07 |
 | Le secours [`embedding-model-835ad140`](https://github.com/so-keyldzn/oxyn/releases/tag/embedding-model-835ad140) est publié (2026-10-07T16:45:34Z), `prerelease: true`, `draft: false`. Assets et leurs empreintes GitHub : `model.safetensors` 194 889 568 octets `sha256:f3ea88b2…903be`, `tokenizer.json` 25 301 672 octets `sha256:4f2842d5…1582f` — tous deux égaux aux valeurs épinglées —, `LICENSE-Apache-2.0.txt` 11 358 octets, `NOTICE.md` 891 octets. La dernière release est restée `v0.0.7`, et `releases/latest/download/latest.json` répond 200 | `gh api repos/so-keyldzn/oxyn/releases/tags/embedding-model-835ad140`, `…/releases/latest` ; `curl -L` | 2026-10-07 |
+
+## Avis RustSec sur les crates TLS et Wasmtime verrouillées — vérifié le 2026-10-20
+
+`cargo deny --all-features check` (cargo-deny 0.19.0, base d'avis lue le
+2026-10-20) échouait sur le `Cargo.lock` de `e9cd78f` avec **20 avis**, publiés
+entre le 2026-10-14 et le 2026-10-20, après le dernier passage au vert de `main`
+(2026-10-12) : quatre sur `rustls`, un sur `rustls-webpki`, un sur
+`webpki-roots`, un sur `webpki-root-certs` et treize sur `wasmtime`. Chacun est
+levé par une mise à jour compatible semver d'une crate que `Cargo.lock`
+contenait déjà. Aucun manifeste n'a changé — `wasmtime = "48.0.5"` reste le
+plancher déclaré et `Cargo.lock` résout 48.0.7 — et aucun avis n'est ignoré dans
+`deny.toml`. Après la mise à jour, la même commande affiche
+`advisories ok, bans ok, licenses ok, sources ok`. Les deux sections du
+2026-10-02 ci-dessus consignent ce qui était vrai à leur date ; les versions
+ci-dessous remplacent leurs faits sur `Cargo.lock` (`rustls` 0.23.45, Cranelift
+0.135.5).
+
+### Versions résolues dans `Cargo.lock`
+
+| Crate | Avant (`e9cd78f`) | Après | Publiée sur crates.io |
+|---|---|---|---|
+| `rustls` | 0.23.45 | **0.23.46** | 2026-10-14 |
+| `rustls-webpki` | 0.103.15 | **0.103.16** | 2026-10-20 |
+| `webpki-roots` 1.x (l'entrée 0.26.11 n'est pas touchée et dépend de la 1.x) | 1.0.9 | **1.0.10** | 2026-10-19 |
+| `webpki-root-certs` | 1.0.9 | **1.0.10** | 2026-10-19 |
+| `wasmtime`, `wasmtime-environ`, `pulley-interpreter`, `pulley-macros` et les onze crates `wasmtime-internal-*`, qui évoluent ensemble | 48.0.5 | **48.0.7** | 2026-10-19 |
+| les treize crates `cranelift-*`, qui évoluent ensemble | 0.135.5 | **0.135.7** | 2026-10-19 |
+
+32 entrées de `Cargo.lock` changent de version et rien d'autre ne bouge : aucune
+entrée n'est ajoutée ni retirée, et les seules autres lignes qui diffèrent sont
+les quatre références à `webpki-roots` qui suivent la montée de version. Aucune
+des 32 versions n'est retirée du registre. Source : `Cargo.lock` à `e9cd78f` et
+dans l'arbre de travail, API crates.io `/api/v1/crates/<crate>/<version>` pour
+les dates et l'indicateur « yanked », le tout lu le 2026-10-20.
+
+### Avis et portée dans Oxyn
+
+| Avis | Corrigé dans | Ce que cela change pour Oxyn |
+|---|---|---|
+| RUSTSEC-2026-0346 (`rustls`) | >= 0.23.46 | Le `Debug` dérivé des valeurs de session client TLS 1.2 et 1.3 affichait le secret maître ou le PSK de reprise. Seul un `ClientSessionStore` personnalisé qui les formate est touché ; aucune source Rust sous `crates/` ou `drivers/` n'en nomme. Rien à changer dans Oxyn |
+| RUSTSEC-2026-0347 (`rustls`) | >= 0.23.46 | Après un rejet d'Encrypted Client Hello, des données applicatives mises en tampon partaient vers le serveur externe. Seuls les clients qui positionnent `EchMode::Enable` sont touchés ; aucune source ne nomme `EchMode` |
+| RUSTSEC-2026-0348 (`rustls`) | >= 0.23.46 | La décompression Brotli des certificats pouvait allouer 1 Gio avant toute authentification. Seule la feature `brotli`, désactivée par défaut, est touchée : `cargo tree -e features -i rustls` montre `aws_lc_rs`, `std` et `tls12`, et la crate `brotli` du lock vient de `tauri-codegen` |
+| RUSTSEC-2026-0349 (`rustls`) | >= 0.23.46 | Un ServerHello non authentifié pouvait ne laisser aux ClientHello suivants qu'un partage de clé classique, donc une connexion sans l'échange hybride post-quantique. Il atteint un client qui conserve son magasin de reprise, ce qui est le défaut des clients rustls ; la mise à jour n'exige aucune configuration |
+| RUSTSEC-2026-0382 (`rustls-webpki`) | >= 0.103.16, < 0.104.0-alpha.1, ou >= 0.104.0-alpha.8 | Les chemins de certificats qui contiennent les clés d'intermédiaires emSign désormais publiques sont rejetés. La vérification ne fait que se durcir |
+| RUSTSEC-2026-0381 (`webpki-roots`), RUSTSEC-2026-0383 (`webpki-root-certs`) | >= 1.0.10 | La racine `emSign ECC Root CA - G3` sort de l'ensemble embarqué. `webpki-roots` alimente `sqlx-core` (PostgreSQL) et `mysql_async` (MySQL) ; `webpki-root-certs` alimente `rustls-platform-verifier`, donc `reqwest` (`oxyn-llm`, `oxyn-embed`, `tauri-plugin-updater`). Un serveur dont la chaîne se termine à cette racine n'est plus vérifié, ce qui est le résultat voulu et laisse la politique de TLS vérifié de l'ADR-0052 telle qu'elle était |
+| RUSTSEC-2026-0353, -0354, -0355, -0356, -0357, -0358, -0359, -0361, -0362, -0363, -0364 (`wasmtime`) | >= 48.0.6, < 49.0.0 | Paniques de l'hôte dans le modèle de composants et l'asynchrone, un dépassement de pile à la libération d'une longue chaîne de types récursifs, l'exigence de point d'entrée asynchrone non appliquée, des tables de handles imputées à aucune limite, des étiquettes d'exception non alignées |
+| RUSTSEC-2026-0378, -0379 (`wasmtime`) | >= 48.0.7, < 49.0.0 | Une panique en abaissant un flux créé par l'hôte vers un invité qui attend un autre type de charge ; le backend Cranelift aarch64 pouvait sauter vers une mauvaise cible sur un grand `br_table` |
+
+`wasmtime` se trouve derrière la feature `wasm-host` d'`oxyn-plugin`, désactivée
+par défaut, qu'aucun manifeste n'active, et `oxyn-plugin` n'a lui-même aucun
+dépendant dans le workspace (`cargo tree --all-features -i oxyn-plugin`
+n'affiche que la crate) : l'application livrée ne contient aucun des treize avis.
+`--all-features`, qu'utilisent `make lint`, `make test`, `make doc` et
+`make deny`, la compile et l'audite malgré tout, si bien que ces avis font
+échouer la porte. 48.0.6 et 48.0.7 corrigent aussi des GHSA hors de cette liste
+(évasion du bac à sable du système de fichiers, wasi-http), et 48.0.7 met à jour
+son propre `rustls` en 0.23.46. Sources : la base d'avis RustSec,
+`crates/<crate>/RUSTSEC-2026-<numéro>.md`, commit `e6f94f37`, lue le
+2026-10-20, avec [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382)
+comme entrée publiée ce jour-là ; notes de version de
+[rustls 0.23.46](https://github.com/rustls/rustls/releases/tag/v/0.23.46),
+[rustls-webpki 0.103.16](https://github.com/rustls/webpki/releases/tag/v/0.103.16),
+[webpki-roots 1.0.10](https://github.com/rustls/webpki-roots/releases/tag/v/1.0.10),
+[Wasmtime 48.0.6](https://github.com/bytecodealliance/wasmtime/releases/tag/v48.0.6)
+et [48.0.7](https://github.com/bytecodealliance/wasmtime/releases/tag/v48.0.7).

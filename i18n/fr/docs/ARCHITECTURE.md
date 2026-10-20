@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/ARCHITECTURE.md" sha256="b12b0cc423a2" -->
+<!-- oxyn-translation source="docs/ARCHITECTURE.md" sha256="93a1c91672bb" -->
 
 > Traduction française de [docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md). **La version anglaise fait foi.**
 
@@ -210,16 +210,26 @@ est CodeMirror 6, avec `@codemirror/lang-sql`.
 
 L'espace de travail conserve la session renvoyée par `Connect`. Une seule
 exécution est active par éditeur ; ses événements sont filtrés par identifiant
-de commande et connexion. Le résultat final est également transmis par un canal
+de commande, connexion et fenêtre. Le résultat final est également transmis par un canal
 fiable, afin qu'une perte d'événements intermédiaires ne laisse pas la grille
 bloquée. L'annulation transmet le même `CancelToken` jusqu'au driver. Les
 décisions `RequireApproval` ouvrent une confirmation avant de reprendre la
 commande correspondante. Fermer la dernière fenêtre quitte l'application.
 
-Ce paragraphe décrit l'hôte à fenêtre unique d'aujourd'hui.
-[ADR-0043](adr/0043-multi-fenetre.md) (proposé) en fait un hôte à plusieurs
-fenêtres : session, flux d'événements et consoles deviennent propres à une
-fenêtre, et fermer une fenêtre qui n'est pas la dernière ferme ses consoles.
+L'hôte est à plusieurs fenêtres ([ADR-0043](adr/0043-multi-fenetre.md)
+(proposé)) : chaque fenêtre vit dans ce processus, sur le même backend, et sa
+session, son flux d'événements et ses consoles lui sont propres.
+`WindowRegistry` (`backend/windows.rs`) est l'unique source de vérité sur ce que
+possède chaque fenêtre — les sessions qu'elle a ouvertes, les commandes qu'elle a
+envoyées, les résultats qui lui ont été remis — et une commande qui nomme ce
+qu'une autre fenêtre possède est refusée, `cancel` compris. Une fenêtre est
+étiquetée `workspace-<uuid>` par Rust et ne s'ouvre que par la commande bornée
+d'Oxyn : 16 fenêtres au plus (`MAX_WINDOWS`). Ce que la capability leur accorde
+est écrit une seule fois, dans [SECURITY](SECURITY.md#surface-dentrée). Fermer
+une fenêtre qui n'est pas la dernière ferme ses consoles, annule les commandes
+qu'elle avait encore en cours et déconnecte les connexions qu'aucune autre
+fenêtre ne tient. L'abonnement aux événements est lui aussi propre à chaque
+fenêtre (§9).
 [ADR-0041](adr/0041-registre-d-actions-menus-et-raccourcis.md) (proposé) y
 ajoute la barre de menus native de macOS, construite en Rust depuis le
 registre d'actions du front.
@@ -291,15 +301,62 @@ terminée avant que le Stop ne l'atteigne. L'attente est bornée par ce qui rest
 de l'échéance et par une grâce de dix secondes après le Stop ; au-delà, ou
 quand l'appelant abandonne l'exécution, l'issue est `OutcomeUnknown`, jamais
 une annulation (I-13). Une lecture continue de lâcher prise aussitôt. Le
-verdict ne vaut que ce que vaut celui du pilote : MySQL ne répond `Cancelled`
-pour une écriture qu'une fois le kill signalé par le serveur sur cette
-instruction même, mais PostgreSQL le répond encore pour une écriture arrêtée
-avant qu'aucune de ses lignes n'arrive — toute écriture sans `RETURNING` — sans
-lire la réponse du serveur à sa demande d'annulation, une lacune connue, pas une
-garantie. SQLite ne répond `Cancelled` que pour une écriture qui n'a jamais
-commencé ; une écriture qu'il interrompt est ambiguë, celle dont la dernière
-ligne a été lue est `Completed`, et un `RETURNING` arrêté entre deux lots — ses
-changements déjà faits à son premier pas — est `OutcomeUnknown`.
+verdict ne vaut que ce que vaut celui du pilote, et `Cancelled` veut dire que
+rien n'a été appliqué : un pilote ne le répond qu'avec une preuve, ou pas du
+tout. Ce qui fait preuve dépend du protocole.
+
+* **PostgreSQL** tranche une écriture partie sur sa propre connexion. La tâche
+  envoie la demande d'annulation depuis une seconde connexion et continue de
+  lire le même flux, cinq secondes au plus — en dessous de la grâce de
+  l'exécuteur, sans quoi son verdict ne serait jamais vu. L'erreur d'annulation
+  du serveur (`57014`) donne `Cancelled` pour une lecture ou une écriture de
+  données simple seulement, puisqu'elle interrompt l'unique instruction que le
+  serveur exécutait et pas ce qu'une procédure avait déjà validé : un `CALL`, un
+  bloc `DO`, un changement de structure ou de droits ou une instruction de forme
+  inconnue donne `OutcomeUnknown` sur elle. Il en va de même pour un `57014` que
+  le Stop n'a pas demandé, comme le `statement_timeout` d'un rôle : le verdict
+  suit l'instruction, pas la cause. La fin du flux donne `Completed`,
+  avec ses lignes affectées : la fin du flux, pas le `CommandComplete` de
+  l'instruction, puisqu'une instruction en autocommit valide au `Sync`, après
+  lui. Toute autre erreur, ou le silence jusqu'à la borne, donne
+  `OutcomeUnknown`. Une écriture arrêtée avant d'être partie est `Cancelled`.
+  Une écriture coupée pendant la lecture des lignes qu'elle renvoie reste
+  `OutcomeUnknown`, et une écriture partie dont le curseur a été abandonné n'est
+  jamais `Cancelled` : personne ne lit sa réponse.
+* **MySQL** ne répond jamais `Cancelled` pour une instruction partie qui a pu
+  écrire, un kill signalé par le serveur sur cette instruction même
+  (`ER_QUERY_INTERRUPTED`) compris. Ce signalement prouve que le kill a été
+  consommé — la connexion et la transaction survivent — pas que rien n'a été
+  conservé : une table non transactionnelle peut conserver les lignes modifiées
+  avant l'interruption, une procédure ce qu'elle a déjà validé, et un
+  changement de structure peut déjà être validé. Une telle instruction est
+  `OutcomeUnknown`, dans une transaction explicite comme en autocommit : une
+  transaction ouverte ne dit rien du moteur des tables que l'instruction a
+  touchées, et le moteur n'est pas interrogé, puisque le trouver reviendrait à
+  composer des requêtes de schéma à partir d'identifiants que l'instruction
+  nomme ([I-10](../CLAUDE.md#i-10)) et qu'une clé étrangère ou un déclencheur
+  atteignent des tables qu'elle ne nomme pas. Une écriture sur un moteur
+  transactionnel, que le serveur annule, est donc elle aussi `OutcomeUnknown` :
+  une perte de précision délibérée. Un arrêt décidé avant l'envoi de
+  l'instruction, et une instruction qui ne peut pas avoir écrit, restent
+  `Cancelled`. Les sources de ces comportements du serveur et la condition de
+  réexamen sont dans
+  [ADR-0050](adr/0050-mysql-driver-on-mysql-async-prepared-first.md), point 7.
+* **SQLite** ne répond `Cancelled` que pour une écriture qui n'a jamais
+  commencé ; une écriture qu'il interrompt est ambiguë, celle dont la dernière
+  ligne a été lue est `Completed`, et un `RETURNING` arrêté entre deux lots — ses
+  changements déjà faits à son premier pas — est `OutcomeUnknown`. Dès qu'une
+  instruction antérieure d'un lot est terminée et pouvait écrire (le drapeau de
+  lecture seule du moteur dit qu'elle le peut, ou son compteur de changements a
+  bougé), aucun échec ni aucune interruption ultérieurs n'est `Cancelled` ni
+  transitoire, même quand l'instruction concernée est une lecture : rejouer le
+  lot appliquerait deux fois les instructions antérieures. L'échec est
+  permanent, ou ambigu quand l'instruction en échec a pu elle-même écrire, et son
+  message dit que les instructions antérieures ont été appliquées — validées,
+  sauf si une transaction est ouverte
+  ([ADR-0039](adr/0039-etat-de-transaction-d-une-session.md)), auquel cas elles
+  suivent son sort. Un verrou sur la toute première instruction reste
+  transitoire : rien n'a tourné avant elle.
 
 La préparation PostgreSQL examine les types des colonnes, y compris les bases
 de domaines et les éléments de tableaux. Les types sans sortie binaire, les
@@ -480,6 +537,7 @@ pub struct ExecRequest {
     pub risk: MutationRisk,          // déclaré ; idem
     pub limits: ExecLimits,
     pub transaction_control: bool,   // BEGIN, COMMIT, ROLLBACK… ; reclassifié, cf. §7.2
+    pub context_change: bool,        // USE… ; reclassifié de même, cf. §7.2
 }
 
 pub struct ExecLimits {
@@ -834,13 +892,30 @@ Quatre règles gouvernent cette table, et leur **ordre** compte :
    base de données. `COPY TO STDOUT` reste une lecture. Le motif dédié explique
    mieux l'effet que « écriture par un agent ».
 
-Deux compléments, hors de la table :
+Trois compléments, hors de la table :
 
 * **Un agent ne pilote pas une transaction.** `BEGIN`, `COMMIT`, `ROLLBACK`,
   `SAVEPOINT`, `RELEASE` sont classés `Read`, et passent pour un humain ; la
   reclassification les signale à part (`ExecRequest::transaction_control`), et
   le gate les refuse à un agent partout : sur une session partagée, ils
   régleraient la transaction de l'utilisateur ([SECURITY](SECURITY.md#marquage-des-connexions)).
+* **Un agent ne change pas le contexte de la session.** `SetSessionContext` est
+  refusé à un agent ([ADR-0019](adr/0019-contexte-de-session.md)), et une
+  instruction qui commence par `USE` l'est aussi. `USE other` arrive sur le bus comme un
+  `Execute`, là où ce refus ne regarde pas : le classifieur ne le lit donc plus
+  comme un `Read`, il est `Unknown`, et la reclassification le signale à part
+  (`ExecRequest::context_change`, lu par `Command::changes_context()`). Le gate
+  le refuse à un agent dans tous les environnements, développement compris : un
+  refus, jamais une confirmation, journalisé comme tout autre refus. Le motif
+  renvoie l'utilisateur au sélecteur de contexte. Pour un humain, un `USE` saisi
+  est une instruction `Unknown` comme les autres de la table. Le pilote MySQL le
+  refuse à tout acteur, avant que rien ne parte vers le serveur, et renvoie au
+  même sélecteur
+  ([ADR-0050](adr/0050-mysql-driver-on-mysql-async-prepared-first.md), point 3).
+  Pour MySQL et MariaDB, le classifieur lit comme du code le corps d'un
+  commentaire exécutable (`/*!50000 … */`, `/*M!100000 … */`), puisque le
+  serveur l'exécute : un `USE` caché là lève lui aussi le drapeau, pour le gate
+  comme pour le pilote.
 * **Une lecture de production part en lecture seule.** Le gate l'autorise sans
   confirmation ; `oxyn-exec` pose alors `limits.read_only`, à l'envoi comme à
   l'approbation, pour qu'une fonction qui écrit derrière un `SELECT` soit
@@ -1147,10 +1222,18 @@ décision. Détail et fenêtres d'abandon assumées : [ADR-0035](adr/0035-ecritu
 (`subscribe_events`), alimenté par le canal de diffusion de l'exécuteur. Une
 webview lente en perd — c'est journalisé, jamais masqué —, mais l'issue de chaque
 commande revient comme réponse de son `invoke` : une perte d'événements
-intermédiaires ne laisse pas une vue bloquée. Cet abonnement est aujourd'hui
-unique pour tout le processus : une seconde fenêtre couperait le flux de la
-première. [ADR-0043](adr/0043-multi-fenetre.md) le rend propre à chaque
-fenêtre, filtré en Rust.
+intermédiaires ne laisse pas une vue bloquée. L'abonnement est **propre à chaque
+fenêtre** : `subscribe_events` résout la fenêtre qui l'appelle à partir de la
+`Webview` que Tauri fournit, et le rechargement de cette fenêtre s'abonne de
+nouveau, ce qui met fin à la tâche précédente de cette fenêtre et d'aucune
+autre. Chaque tâche lit la même diffusion mais ne transmet un événement que si
+`WindowRegistry::route` l'attribue à sa fenêtre : les événements d'une commande
+vont à la fenêtre qui possède la commande, un état de transaction à la fenêtre
+qui possède la session, et rien d'autre ne va nulle part. Le filtre est en Rust,
+pas dans la webview, et `clippy.toml` interdit les méthodes de `tauri::Emitter`
+qui diffuseraient ([ADR-0043](adr/0043-multi-fenetre.md)). L'annulation d'une
+commande suit la même appartenance : `cancel` refuse une commande qui appartient
+à une autre fenêtre.
 
 **Un second réacteur entre par les agents externes.** `agent-client-protocol`
 ([ADR-0026](adr/0026-agents-externes-acp.md)) tire `async-io` et `blocking` en

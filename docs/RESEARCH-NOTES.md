@@ -2819,3 +2819,17 @@ exemption.
 | `jsdom` | `30.0.1` | `30.1.3` (2026-10-15) | [npm registry](https://registry.npmjs.org/jsdom) | 2026-10-20 |
 | `prettier` | `3.9.6` | `3.9.10` (2026-10-10) | [npm registry](https://registry.npmjs.org/prettier) | 2026-10-20 |
 | `prettier-plugin-tailwindcss` | `0.8.1` | same | [npm registry](https://registry.npmjs.org/prettier-plugin-tailwindcss) | 2026-10-20 |
+
+## Vite and the launch-editor advisories — checked on 2026-10-21
+
+The `vite` pin of `apps/desktop` moved from `8.3.0` to `8.3.3`. This section
+supersedes the `vite` value cited in the interface table above (`8.3.0`) and in
+the Node-engines row (`vite 8.3.0`): the `engines` field of vite 8.3.3 was not
+re-read, the Node line the CI takes (22) is unchanged.
+
+| Fact | Source | Checked on |
+|---|---|---|
+| Three advisories published on 2026-10-20 affect the `launch-editor` copy bundled in `vite`: [GHSA-587h-7wmj-h5pm](https://github.com/advisories/GHSA-587h-7wmj-h5pm) (CVE-2026-112942, **high**, 19:48:25Z, `fs.existsSync()` check bypassed on Windows), [GHSA-698v-4r3x-3vcv](https://github.com/advisories/GHSA-698v-4r3x-3vcv) (CVE-2026-112943, moderate, 18:30:24Z, `%` not escaped by `escapeCmdArgs()` on Windows) and [GHSA-r825-w8mm-5pxw](https://github.com/advisories/GHSA-r825-w8mm-5pxw) (CVE-2026-112944, moderate, 19:51:52Z, editor CLI flag misinterpretation). For the 8.3 line the vulnerable range is `>= 8.3.0, <= 8.3.2` and the first patched version is `8.3.3` | `gh api /advisories/<id>` | 2026-10-21 |
+| `vite` `8.3.3` was published on 2026-10-06T04:10:19Z, `8.3.4` on 2026-10-08T12:07:04Z and `8.3.5`, the `latest` dist-tag, on 2026-10-21T06:38:54Z. `8.3.3` is the smallest patched version of the line, hence the pin; a later bump goes through the usual update flow | `npm view vite time dist-tags --json` | 2026-10-21 |
+| With `vite` `8.3.3` the lockfile also moves `rolldown` and its bindings from `1.2.8` to `1.2.14` and `@oxc-project/types` from `0.149.0` to `0.154.0`: they are vite's own dependencies, not pins of the application | `pnpm install --lockfile-only` in `apps/desktop`, diff of `pnpm-lock.yaml` | 2026-10-21 |
+| On this change `pnpm audit --prod` reports "No known vulnerabilities found", `make front-controles` passes (Prettier, ESLint, `tsc --noEmit`, licenses, audit) and `pnpm build` completes with the SPA prerender of `/` | commands run in `apps/desktop` | 2026-10-21 |

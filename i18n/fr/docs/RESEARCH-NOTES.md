@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="ceb0c6c3b02a" -->
+<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="c5799ce7b204" -->
 
 > Traduction française de [docs/RESEARCH-NOTES.md](../../../docs/RESEARCH-NOTES.md). **La version anglaise fait foi.**
 
@@ -2860,3 +2860,17 @@ ne figure donc sous une exemption.
 | `jsdom` | `30.0.1` | `30.1.3` (2026-10-15) | [registre npm](https://registry.npmjs.org/jsdom) | 2026-10-20 |
 | `prettier` | `3.9.6` | `3.9.10` (2026-10-10) | [registre npm](https://registry.npmjs.org/prettier) | 2026-10-20 |
 | `prettier-plugin-tailwindcss` | `0.8.1` | idem | [registre npm](https://registry.npmjs.org/prettier-plugin-tailwindcss) | 2026-10-20 |
+
+## Vite et les avis launch-editor — vérifié le 2026-10-21
+
+L'épinglage de `vite` dans `apps/desktop` passe de `8.3.0` à `8.3.3`. Cette section
+remplace la valeur de `vite` citée dans le tableau d'interface ci-dessus (`8.3.0`) et
+dans la ligne des versions de Node (`vite 8.3.0`) : le champ `engines` de vite 8.3.3
+n'a pas été relu, la ligne de Node que prend la CI (22) ne change pas.
+
+| Fait | Source | Vérifié le |
+|---|---|---|
+| Trois avis publiés le 2026-10-20 touchent la copie de `launch-editor` embarquée dans `vite` : [GHSA-587h-7wmj-h5pm](https://github.com/advisories/GHSA-587h-7wmj-h5pm) (CVE-2026-112942, **élevé**, 19:48:25Z, contrôle `fs.existsSync()` contourné sous Windows), [GHSA-698v-4r3x-3vcv](https://github.com/advisories/GHSA-698v-4r3x-3vcv) (CVE-2026-112943, modéré, 18:30:24Z, `%` non échappé par `escapeCmdArgs()` sous Windows) et [GHSA-r825-w8mm-5pxw](https://github.com/advisories/GHSA-r825-w8mm-5pxw) (CVE-2026-112944, modéré, 19:51:52Z, mauvaise interprétation d'un drapeau de la ligne de commande de l'éditeur). Pour la ligne 8.3, la plage vulnérable est `>= 8.3.0, <= 8.3.2` et la première version corrigée est `8.3.3` | `gh api /advisories/<id>` | 2026-10-21 |
+| `vite` `8.3.3` a été publié le 2026-10-06T04:10:19Z, `8.3.4` le 2026-10-08T12:07:04Z et `8.3.5`, dist-tag `latest`, le 2026-10-21T06:38:54Z. `8.3.3` est la plus petite version corrigée de la ligne, d'où l'épinglage ; une montée ultérieure passe par le flux de mise à jour habituel | `npm view vite time dist-tags --json` | 2026-10-21 |
+| Avec `vite` `8.3.3`, le lockfile déplace aussi `rolldown` et ses bindings de `1.2.8` à `1.2.14` et `@oxc-project/types` de `0.149.0` à `0.154.0` : ce sont des dépendances propres de vite, pas des épinglages de l'application | `pnpm install --lockfile-only` dans `apps/desktop`, diff de `pnpm-lock.yaml` | 2026-10-21 |
+| Sur ce changement, `pnpm audit --prod` répond « No known vulnerabilities found », `make front-controles` passe (Prettier, ESLint, `tsc --noEmit`, licences, audit) et `pnpm build` se termine avec le prérendu SPA de `/` | commandes lancées dans `apps/desktop` | 2026-10-21 |

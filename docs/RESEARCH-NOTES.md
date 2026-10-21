@@ -2452,3 +2452,67 @@ statistics, release build, macOS 26.2, Apple M1 Max, two runs each.
 |---|---|---|
 | "The latest release is the most recent non-prerelease, non-draft release, sorted by the `created_at` attribute"; drafts and pre-releases cannot be set as latest | [GitHub REST API, releases](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) | 2026-10-07 |
 | The fallback [`embedding-model-835ad140`](https://github.com/so-keyldzn/oxyn/releases/tag/embedding-model-835ad140) is published (2026-10-07T16:45:34Z), `prerelease: true`, `draft: false`. Assets and their GitHub digests: `model.safetensors` 194 889 568 bytes `sha256:f3ea88b2…903be`, `tokenizer.json` 25 301 672 bytes `sha256:4f2842d5…1582f` — both equal to the pinned values —, `LICENSE-Apache-2.0.txt` 11 358 bytes, `NOTICE.md` 891 bytes. The latest release stayed `v0.0.7`, and `releases/latest/download/latest.json` answers 200 | `gh api repos/so-keyldzn/oxyn/releases/tags/embedding-model-835ad140`, `…/releases/latest`; `curl -L` | 2026-10-07 |
+
+## TanStack Start family and GHSA-qx66-fv34-fjm8 — checked on 2026-10-20
+
+This section supersedes the `@tanstack/react-start`, `react-router`, `router-plugin`
+and `@tanstack/react-store` versions cited in the interface table above (`1.168.54`,
+`1.170.36`, `1.168.38`, `0.11.1`): the `package.json` of `apps/desktop` now pins the
+versions below. Every version and date comes from the npm registry
+(`npm view @tanstack/<package> time --json`) read on 2026-10-20.
+
+### The advisory
+
+| Fact | Source | Checked on |
+|---|---|---|
+| [GHSA-qx66-fv34-fjm8](https://github.com/advisories/GHSA-qx66-fv34-fjm8) (CVE-2026-102989), severity **critical**, published 2026-10-15T20:22:20Z: an unauthenticated attacker crafts a URL to a TanStack Start server function and, if someone opens it, the application returns attacker-controlled HTML from its own origin (reflected XSS). Cause: the server-function transport passes request payload fields into internal middleware state. Affected: `@tanstack/start-server-core` `>= 1.143.12, < 1.169.39` and `@tanstack/react-start` `>= 1.143.12, < 1.168.60`, with the same range on the Solid and Vue packages. The fix limits client-supplied input to public fields and validates responses at the server boundary | `gh api /advisories/GHSA-qx66-fv34-fjm8` | 2026-10-20 |
+| `pnpm audit --prod` (the `audit-npm` step of `make front-controles`) on the lockfile of `e9cd78f` reports 2 critical advisories: `@tanstack/react-start` 1.168.54 and `@tanstack/start-server-core` 1.169.35. After the change below it reports `No known vulnerabilities found` | `pnpm audit --prod` in `apps/desktop`, before and after | 2026-10-20 |
+| `apps/desktop/src` defines no server function (no `createServerFn`) and Start runs in SPA mode with a prerendered `index.html` (`vite.config.ts`): the bump is required by the audit gate and removes the vulnerable code from the dependency graph, but the shipped application does not expose a server-function endpoint | `grep -rn createServerFn apps/desktop/src` at `e9cd78f` | 2026-10-20 |
+
+### Versions pinned in `apps/desktop/package.json`
+
+`@tanstack/react-start` pins every other package of the family **exactly**
+(`npm view @tanstack/react-start@1.168.60 dependencies`): a direct pin of
+`@tanstack/react-router` or `@tanstack/router-plugin` that differs from what
+`react-start` pins leaves two copies of `router-core` in the lockfile.
+
+| Package | Version | Why this version | Published | Source |
+|---|---|---|---|---|
+| `@tanstack/react-start` | `1.168.60` | first patched version of the 1.168 line (the smallest change that clears the advisory); replaces `1.168.54` | 2026-09-30T17:48:34Z | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-start) |
+| `@tanstack/react-router` | `1.170.41` | the exact version `react-start` 1.168.60 depends on; replaces `1.170.36` | 2026-09-30T17:48:34Z | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-router) |
+| `@tanstack/router-plugin` | `1.168.42` | the exact version `start-plugin-core` 1.171.49 depends on; its peer `@tanstack/react-router ^1.170.41` accepts the line above; replaces `1.168.38` | 2026-09-30T17:48:34Z | [npm registry](https://registry.npmjs.org/@tanstack%2Frouter-plugin) |
+| `@tanstack/react-store` | `0.11.2` | `react-router` 1.170.41 requires `^0.11.2`; with `0.11.1` pinned the lockfile held two copies of `@tanstack/store`. `react-form` 1.33.5 (`^0.11.0`) and `react-pacer` 0.23.0 (`^0.11.1`) accept `0.11.2`; replaces `0.11.1` | 2026-09-29T07:59:49Z | [npm registry](https://registry.npmjs.org/@tanstack%2Freact-store) |
+
+`@tanstack/react-router-devtools` stays at `1.167.2`: its peers
+(`@tanstack/router-core ^1.171.30`, `@tanstack/react-router ^1.170.36`) accept the
+new versions. `@tanstack/devtools-vite` stays at `0.8.5`, which peers on `vite` only.
+
+### Resolved in `pnpm-lock.yaml` (not pinned in the manifest)
+
+Moved by `pnpm install` because `react-start` 1.168.60 pins them exactly; none needs
+an override.
+
+| Package | Resolved version | Published |
+|---|---|---|
+| `@tanstack/start-server-core` | `1.169.39` (first patched version; was `1.169.35`) | 2026-09-30T17:48:11Z |
+| `@tanstack/router-core` | `1.171.34` (was `1.171.30`) | 2026-09-30T17:50:05Z |
+| `@tanstack/start-plugin-core` | `1.171.49` (was `1.171.44`) | 2026-09-30T17:49:13Z |
+| `@tanstack/start-client-core` | `1.170.34` (was `1.170.30`) | 2026-09-30T17:47:20Z |
+| `@tanstack/react-start-client` | `1.168.39` (was `1.168.34`) | 2026-09-30T17:51:06Z |
+| `@tanstack/react-start-server` | `1.167.46` (was `1.167.41`) | 2026-09-30T17:49:03Z |
+| `@tanstack/react-start-rsc` | `0.1.59` (was `0.1.53`) | 2026-09-30T17:47:30Z |
+| `@tanstack/router-generator` | `1.167.40` (was `1.167.36`) | 2026-09-30T17:48:02Z |
+| `@tanstack/store` | `0.11.2` (second copy removed; was `0.11.1`) | 2026-09-29T08:00:31Z |
+
+### Why bumping `@tanstack/react-start` alone fails
+
+| Fact | Source | Checked on |
+|---|---|---|
+| With only `react-start` moved to 1.168.60 (Dependabot PR #235), the direct pin `react-router` 1.170.36 (`router-core` 1.171.30) stays beside the 1.170.41 (`router-core` 1.171.34) that `react-start` brings: the lockfile holds two copies of each. `pnpm audit --prod` is clean in that state, but the production build fails in the SPA prerender step with `Error in renderToReadableStream: TypeError: router.serverSsr.takeBufferedScripts is not a function` then `Failed to fetch /: Internal Server Error`, the failure of the `rust (ubuntu-24.04)` job of #235. Reproduced in a scratch copy of `apps/desktop` outside the repository | `pnpm build` in the scratch copy; job log `gh api repos/so-keyldzn/oxyn/actions/jobs/118199466822/logs` | 2026-10-20 |
+| With the four pins above, `pnpm build` (client, SSR and prerender of `/`) succeeds | `pnpm build` in `apps/desktop` | 2026-10-20 |
+
+### Not taken
+
+| Fact | Source | Checked on |
+|---|---|---|
+| react-start `1.168.61` (2026-10-10T07:29:33Z) is the latest patch of the 1.168 line, and `1.169.3` (2026-10-16T21:10:41Z) is the `latest` dist-tag; its peer is `vite >=8.0.0`. Neither is needed to clear the advisory: a later bump goes through the usual update flow | `npm view @tanstack/react-start time dist-tags --json` | 2026-10-20 |

@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="c5799ce7b204" -->
+<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="b36cbc955264" -->
 
 > Traduction française de [docs/RESEARCH-NOTES.md](../../../docs/RESEARCH-NOTES.md). **La version anglaise fait foi.**
 
@@ -193,8 +193,8 @@ ou de `rfd`** :
 | `vite` · `@vitejs/plugin-react` | `8.3.0` · `6.1.1` | idem | — |
 | `tailwindcss` · `@tailwindcss/vite` | `4.3.3` | idem | — |
 | `typescript` | `6.0.3` | `7.0.2` | voir ADR-0029, alternatives écartées |
-| `storybook` · `@storybook/react-vite` · addons | `10.6.0` | idem | — |
-| `vitest` · `@vitest/browser-playwright` | `4.1.11` | `5.0.1` | `@storybook/addon-vitest@10.6.0` exige `vitest ^3 \|\| ^4` |
+| `storybook` · `@storybook/react-vite` · addons · `eslint-plugin-storybook` | `10.6.2` | `10.6.3` | lu le 2026-10-21 (`pnpm view`) : `10.6.2`, publiée le 2026-10-12, est la première version corrigée de [GHSA-f2ph-cmg5-wxc8](https://github.com/advisories/GHSA-f2ph-cmg5-wxc8) (critique, développement seulement) ; `10.6.3` a été publiée le 2026-10-20 |
+| `vitest` · `@vitest/browser-playwright` | `4.1.11` | `5.0.1` | `@storybook/addon-vitest@10.6.0` exigeait `vitest ^3 \|\| ^4` ; `10.6.2` accepte aussi `^5` (lu le 2026-10-21), le passage à Vitest 5 n'est pas encore fait |
 | `playwright` | `1.63.0` | idem | Chromium seul, pour les stories |
 | `@uiw/react-codemirror` · `@codemirror/lang-sql` | `4.25.11` · `6.10.0` | idem | — |
 | `zod` | `4.6.5` | idem | relevé le 2026-09-16 ; valide les réponses IPC ([ADR-0031](adr/0031-validation-des-reponses-ipc.md)). Était déclaré depuis ADR-0029 et importé nulle part |
@@ -2839,9 +2839,9 @@ ne figure donc sous une exemption.
 | `react-resizable-panels` | `4.12.4` | `4.14.7` (2026-10-20) | [registre npm](https://registry.npmjs.org/react-resizable-panels) | 2026-10-20 |
 | `recharts` | `3.8.0` | `3.10.1` (2026-07-25) | [registre npm](https://registry.npmjs.org/recharts) | 2026-10-20 |
 | `tw-animate-css` | `1.4.0` | idem | [registre npm](https://registry.npmjs.org/tw-animate-css) | 2026-10-20 |
-| `@storybook/addon-a11y` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-a11y) | 2026-10-20 |
-| `@storybook/addon-docs` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-docs) | 2026-10-20 |
-| `@storybook/addon-vitest` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-vitest) | 2026-10-20 |
+| `@storybook/addon-a11y` | `10.6.2` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-a11y) | 2026-10-21 |
+| `@storybook/addon-docs` | `10.6.2` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-docs) | 2026-10-21 |
+| `@storybook/addon-vitest` | `10.6.2` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-vitest) | 2026-10-21 |
 | `@tanstack/devtools-vite` | `0.8.5` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Fdevtools-vite) | 2026-10-20 |
 | `@tanstack/eslint-config` | `0.4.0` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Feslint-config) | 2026-10-20 |
 | `@tanstack/react-devtools` | `0.10.12` | `0.10.13` (2026-09-23) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-devtools) | 2026-10-20 |
@@ -2856,7 +2856,7 @@ ne figure donc sous une exemption.
 | `@vitest/browser` | `4.1.11` | `5.0.5` (2026-10-15) | [registre npm](https://registry.npmjs.org/@vitest%2Fbrowser) | 2026-10-20 |
 | `@vitest/coverage-v8` | `4.1.11` | `5.0.5` (2026-10-15) | [registre npm](https://registry.npmjs.org/@vitest%2Fcoverage-v8) | 2026-10-20 |
 | `eslint` | `9.39.5` | `10.13.0` (2026-10-16) | [registre npm](https://registry.npmjs.org/eslint) | 2026-10-20 |
-| `eslint-plugin-storybook` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/eslint-plugin-storybook) | 2026-10-20 |
+| `eslint-plugin-storybook` | `10.6.2` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/eslint-plugin-storybook) | 2026-10-21 |
 | `jsdom` | `30.0.1` | `30.1.3` (2026-10-15) | [registre npm](https://registry.npmjs.org/jsdom) | 2026-10-20 |
 | `prettier` | `3.9.6` | `3.9.10` (2026-10-10) | [registre npm](https://registry.npmjs.org/prettier) | 2026-10-20 |
 | `prettier-plugin-tailwindcss` | `0.8.1` | idem | [registre npm](https://registry.npmjs.org/prettier-plugin-tailwindcss) | 2026-10-20 |

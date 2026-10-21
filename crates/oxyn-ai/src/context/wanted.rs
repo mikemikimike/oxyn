@@ -24,6 +24,24 @@ use oxyn_catalog::{CatalogCache, CatalogPath, RelationRef, SearchOptions, search
 
 use super::{ContextPolicy, MAX_MENTIONS, Mention, SemanticScores};
 
+/// Characters a word of the question needs before it may match the *start* of
+/// a name. A shorter one (`are`, `in`, `or`, `id`, `les`, `ont`) matches only
+/// a whole name or a whole word of it.
+///
+/// A question is made of ordinary words, and the lexical rank outranks the
+/// semantic one without a threshold (ADR-0056): `in` as a prefix would pull
+/// `invoices`, and `are` would pull `area_codes`, above the tables the
+/// question is about. A length is language-neutral, where a list of stop words
+/// would know one language only. Four is a product choice, not a limit
+/// imposed from outside. A short word still finds a table named after it
+/// (`tx`) or a table that has it as a word (`lines_by_id`), only not the longer
+/// names it starts.
+///
+/// Only the selection of a question uses it. The interactive search keeps the
+/// default: someone typing `or` is looking for `orders` and watches the list
+/// narrow as they type.
+const QUESTION_MIN_PREFIX_CHARS: usize = 4;
+
 /// The relations the gate would describe, in its order: the mentioned ones
 /// first, then what `focus` makes the search find, up to
 /// [`ContextPolicy::max_relations`].
@@ -120,7 +138,10 @@ pub(super) fn select(
 fn found(cache: &CatalogCache, focus: &str, limit: usize) -> Vec<CatalogPath> {
     let focus = focus.trim();
     if !focus.is_empty() {
-        let hits = search(cache, focus, &SearchOptions::default().with_limit(limit));
+        let options = SearchOptions::default()
+            .with_min_prefix_chars(QUESTION_MIN_PREFIX_CHARS)
+            .with_limit(limit);
+        let hits = search(cache, focus, &options);
         if !hits.is_empty() {
             return hits.into_iter().map(|hit| hit.path).collect();
         }
@@ -154,11 +175,10 @@ fn ranked(
     let mut hits = if focus.is_empty() {
         Vec::new()
     } else {
-        search(
-            cache,
-            focus,
-            &SearchOptions::default().with_limit(usize::MAX),
-        )
+        let options = SearchOptions::default()
+            .with_min_prefix_chars(QUESTION_MIN_PREFIX_CHARS)
+            .with_limit(usize::MAX);
+        search(cache, focus, &options)
     };
     hits.sort_by(|a, b| {
         b.score

@@ -1,10 +1,10 @@
-<!-- oxyn-translation source="docs/adr/0051-automatic-updates-from-github-releases.md" sha256="6e58f2314940" -->
+<!-- oxyn-translation source="docs/adr/0051-automatic-updates-from-github-releases.md" sha256="d34e07afb9eb" -->
 
 > Traduction française de [docs/adr/0051-automatic-updates-from-github-releases.md](../../../../docs/adr/0051-automatic-updates-from-github-releases.md). **La version anglaise fait foi.**
 
 # ADR-0051 — Oxyn se met à jour depuis les GitHub Releases, en Rust seulement, et installe à la fermeture
 
-**Statut :** proposé · **Date :** 2026-10-02
+**Statut :** accepté (2026-10-20) · **Date :** 2026-10-02
 
 ## Contexte
 

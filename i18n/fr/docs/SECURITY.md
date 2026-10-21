@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/SECURITY.md" sha256="cff8a9640d80" -->
+<!-- oxyn-translation source="docs/SECURITY.md" sha256="4745394d69fa" -->
 
 > Traduction française de [docs/SECURITY.md](../../../docs/SECURITY.md). **La version anglaise fait foi.**
 
@@ -330,7 +330,8 @@ Ce qui entre dans Oxyn et n'est pas fiable, par ordre de sous-estimation :
    libellé ni fenêtre cible). Elle n'atteint rien d'une autre fenêtre.
    Une réserve, qui tient à un secret : `start_dragging` et
    `internal_toggle_maximize` de Tauri acceptent le libellé d'une autre
-   fenêtre (`tauri` 2.11.5, `src/window/plugin.rs`, `get_window`). Aucune
+   fenêtre (`tauri` 2.12.1, `src/window/plugin.rs`, `get_window`, lignes
+   13-21, lu le 2026-10-20 — à relire à chaque montée de `tauri`). Aucune
    commande ne renvoie donc au front le libellé d'une fenêtre, ni même le
    sien ; une commande qui le ferait donnerait à une XSS de quoi déplacer ou
    agrandir les autres fenêtres.
@@ -346,9 +347,17 @@ Ce qui entre dans Oxyn et n'est pas fiable, par ordre de sous-estimation :
    `style-src` y garde `'self' 'unsafe-inline'` : des composants posent un
    `<style>` à l'exécution, dans le DOM de la webview, alors que Tauri ne pose
    un `nonce` que sur les `<style>` déjà présents, en texte, dans le HTML
-   statique du build — et ce fichier n'en contient aucun (vérifié dans le
-   source de `tauri-codegen` 2.6.3 et `tauri-utils` 2.9.3, versions de
-   `Cargo.lock`, le 2026-09-24 — [I-12](../CLAUDE.md#i-12)). En dépendent :
+   statique du build — et ce fichier n'en contient aucun (vérifié le
+   2026-09-24, puis de nouveau le 2026-10-20 sur le build de `e9cd78f` : son
+   seul fichier HTML, `apps/desktop/dist/client/index.html`, ne contient aucun
+   `<style`). Le côté Tauri est vérifié dans le source de `tauri-codegen`
+   2.7.1 (`src/context.rs`, qui appelle `inject_nonce_token` sur chaque
+   fichier HTML), `tauri-utils` 2.10.1 (`src/html2.rs`, `inject_nonce_token`,
+   qui sélectionne les éléments `style` du fichier analysé) et `tauri` 2.12.1
+   (`src/manager/mod.rs`, `replace_csp_nonce`, qui ajoute une source
+   `'nonce-…'` par jeton trouvé dans le fichier servi), versions de
+   `Cargo.lock`, le 2026-10-20 — à relire à chaque montée de `tauri`
+   ([I-12](../CLAUDE.md#i-12)). En dépendent :
 
    - `ChartStyle` (`apps/desktop/src/components/ui/chart.tsx`) ;
    - l'éditeur SQL CodeMirror (`sql-editor.tsx`), via `style-mod` 4.1.3 ;
@@ -609,9 +618,23 @@ ce qui le maintiendra valide.
   Le seul aujourd'hui est RUSTSEC-2024-0429 — une *unsoundness* de
   `glib::VariantStrIter`, atteinte par `tauri` → `gtk 0.18` → `atk` → `glib 0.18`.
   La correction est dans `glib 0.20`, que `gtk 0.18` refuse : rien ne se monte
-  ici tant que Tauri n'a pas changé de GTK. Ce code est celui de Linux ; il
-  n'est pas compilé sur macOS, la seule cible livrée aujourd'hui, et Oxyn
-  n'appelle pas cet itérateur. À rouvrir à la prochaine montée de Tauri.
+  ici tant que Tauri n'a pas changé de GTK. Les paquets Linux (x86_64 et
+  aarch64 : deb, rpm, AppImage) livrent `glib 0.18.5` ; macOS ne le compile
+  pas. Le défaut est un déréférencement de NULL : l'itérateur passe à une
+  fonction C l'adresse d'un pointeur de chaîne nul à travers une référence
+  partagée, le compilateur peut ignorer l'écriture, et `CStr::from_ptr` reçoit
+  alors NULL. Il se trouve dans cinq méthodes (`next`, `nth`, `last`,
+  `next_back`, `nth_back`), dont aucune n'est atteignable dans ce qui est
+  livré : `Variant::array_iter_str` (`glib-0.18.5/src/variant.rs`, lignes
+  843-855) est la seule fonction qui construit un `VariantStrIter`, dont le
+  constructeur est `pub(crate)` (`src/variant_iter.rs`, ligne 109), et rien ne
+  l'appelle — ni les 634 crates externes des dépendances normales et de build
+  d'`oxyn-desktop` sur les deux cibles Linux, ni le workspace. Vérifié le
+  2026-10-20 ([I-12](../CLAUDE.md#i-12)). La vérification est refaite à chaque
+  montée de `tauri`, `gtk`, `wry`, `muda`, `tao` ou `webkit2gtk`, puisqu'une
+  nouvelle version pourrait ajouter un appelant ; l'entrée est retirée dès que
+  la chaîne atteint `glib` 0.20 ou plus. `deny.toml` porte la commande, à côté
+  de l'entrée.
 
 Voir aussi [`/securite`](../claude/commands/securite.md) et
 [la liste de contrôle](../claude/checklists/revue-securite.md).

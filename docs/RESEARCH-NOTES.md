@@ -120,6 +120,40 @@ re-check at every bump of `tauri`" still hold: `tauri` 2.12.1
 still registers `applicationWillTerminate:` only, and stops through
 `[NSApp stop:]` (`src/platform_impl/macos/app_delegate.rs`, `app_state.rs`).
 
+Re-read on 2026-10-20, at `tauri` 2.12.1, `tauri-codegen` 2.7.1 and
+`tauri-utils` 2.10.1 (`Cargo.lock`), three more facts still hold, to re-check
+at every bump of `tauri`; the rest of this file keeps the versions printed in
+its own cells:
+
+- the `Emitter` fact: `tauri` 2.12.1 `src/lib.rs`, `pub trait Emitter` at line
+  961, still exactly six emission methods (`emit` 974, `emit_str` 981,
+  `emit_to` 1009, `emit_str_to` 1020, `emit_filter` 1047, `emit_str_filter`
+  1058), which `clippy.toml` forbids
+  ([ADR-0043](adr/0043-multi-fenetre.md)); used in `clippy.toml` and in
+  [SECURITY](SECURITY.md#input-surface);
+- the window-label caveat: `tauri` 2.12.1 `src/window/plugin.rs`, `get_window`
+  (lines 13-21) looks the window up by the label the caller sends and falls
+  back to the calling window only for no label or an empty one;
+  `start_dragging` (`setter!`, line 165) and `internal_toggle_maximize` (lines
+  220-233) both go through it; used in
+  [SECURITY](SECURITY.md#input-surface);
+- the style nonce: `tauri-codegen` 2.7.1 `src/context.rs` imports
+  `inject_nonce_token` from `tauri_utils::html2` (line 28) and calls it on each
+  parsed HTML asset (line 80; a second call, on the isolation page, at line
+  117); `tauri-utils` 2.10.1 `src/html2.rs`: `inject_nonce_token` (lines 67-77)
+  selects the `style` elements of the parsed static document (line 75) and
+  `inject_nonce` skips those that already carry a nonce (lines 51-60); at
+  run time, `tauri` 2.12.1 `src/manager/mod.rs` calls `replace_csp_nonce`
+  (the `style-src` call at line 97, the `script-src` one at line 87; defined
+  at 126-153), which adds `'nonce-…'` sources to
+  `style-src` only when the served asset held the token or style hashes exist
+  (line 140). Only the `style` elements of the static HTML are nonced: a
+  `<style>` inserted into the DOM at run time is not. `src/html.rs` of
+  `tauri-utils` (feature `html-manipulation`) carries the same logic but is
+  not the module `tauri-codegen` uses. What the static HTML of Oxyn's build
+  holds is a property of that build, not of Tauri: it stays dated where
+  [SECURITY](SECURITY.md#input-surface) states it.
+
 Behaviors of the message dialog that
 [ADR-0037](adr/0037-dialogue-natif-pour-les-confirmations-critiques.md) relies
 on, checked in the source on 2026-09-25 — **to re-read at every bump of the
@@ -608,6 +642,63 @@ connection.
 Fixed by `cargo update -p rustls`: **0.23.43 → 0.23.45**, a patch update
 within the same semantic range. No manifest changed, only `Cargo.lock`.
 Checked on 2026-09-14: `cargo deny check advisories` reports nothing any more.
+
+## `glib` 0.18 — advisory RUSTSEC-2024-0429, checked on 2026-10-20
+
+`cargo deny` reports **RUSTSEC-2024-0429** (`informational = "unsound"`) on
+`glib` 0.18.5, the only `glib` in `Cargo.lock`. `deny.toml` ignores it with a
+written reason, which [SECURITY](SECURITY.md#dependencies) repeats. Every
+fact below was read on 2026-10-20 and is **to re-read at every bump of
+`tauri`, `gtk`, `wry`, `muda`, `tao` or `webkit2gtk`**.
+
+- **The advisory**: file `crates/glib/RUSTSEC-2024-0429.md` of the RustSec
+  advisory database, local checkout at HEAD
+  `550efd3d587a29b2e2c2b21b17a440da4fede999` of 2026-10-08 (nothing fetched on
+  2026-10-20). Published 2024-03-30, alias GHSA-wrw7-89jp-8q8g. Affected
+  functions: `glib::VariantStrIter::next`, `nth`, `last`, `next_back` and
+  `nth_back`, in `>=0.15.0,<0.20.0`; patched in `>=0.20.0`; unaffected below
+  `0.15.0`. The mechanism: `impl_get` passes `&p`, an immutable reference to a
+  null `*mut c_char`, as the out-argument of the variadic C function
+  `g_variant_get_child`; the compiler may disregard that write, and
+  `CStr::from_ptr` then receives NULL, which crashes on a NULL dereference. The
+  fix passes `&mut p`.
+- **Why nothing can be bumped**: `gtk` 0.18.2 (`Cargo.lock`) declares
+  `glib = "0.18"` in its own `Cargo.toml` (`[dependencies.glib]`, registry
+  source), which excludes 0.20.
+- **Where it is compiled**: `cargo tree --offline -p oxyn-desktop --target
+  <t> -i glib@0.18.5 -e normal` prints the same tree for
+  `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`: `glib` ←
+  `atk` 0.18.2 ← `gtk` 0.18.2 ← `muda` 0.20.0, `tao` 0.37.1, `tauri-runtime`
+  2.12.1, `tauri-runtime-wry` 2.12.1, `webkit2gtk` 2.0.2, `wry` 0.57.0 and
+  `tauri` 2.12.1. `cairo-rs`, `gdk`, `gdk-pixbuf`, `gdkx11`, `gio`,
+  `javascriptcore-rs`, `pango` and `soup3` depend on `glib` directly as well.
+  With `-e normal,build` on `aarch64-apple-darwin` and `x86_64-apple-darwin`,
+  the same command prints "nothing to print": macOS does not compile it. The
+  Linux packages that do ship it are the `paquets` job of
+  `.github/workflows/livraison.yml` (commits `2a6f563` of 2026-09-24 for
+  x86_64 and `a8039da` of 2026-10-04 for aarch64).
+- **Source of `glib` 0.18.5** (registry): `src/variant_iter.rs` has
+  `VariantStrIter` at line 102, its constructor `pub(crate) fn new` at line
+  109, `impl_get` at line 118, `&p` at line 126 and `CStr::from_ptr` at line
+  129. `src/variant.rs`: `Variant::array_iter_str` (lines 843-855, the
+  construction at line 854) is the only function that builds a
+  `VariantStrIter`; the type is re-exported at `src/lib.rs` line 40, and every
+  other use sits under `#[cfg(test)]` (`variant.rs` from line 2191,
+  `variant_iter.rs` from line 203).
+- **Reachability**: `cargo tree --offline -p oxyn-desktop --target <t> -e
+  normal,build --prefix none --format '{p}'` on the two Linux targets lists
+  634 distinct external crate versions in their union (workspace crates
+  excluded, dev-dependencies not examined). A recursive search for
+  `array_iter_str` and `VariantStrIter` in the registry source of each of
+  them matches `lib.rs`, `variant.rs` and `variant_iter.rs` of `glib` 0.18.5
+  and nothing else; there is no match in `crates/`, `drivers/` or `apps/`
+  either. No shipped code builds a `VariantStrIter`, so the five methods
+  cannot be reached.
+- **The gate**: `cargo deny --all-features check advisories --disable-fetch`
+  prints `advisories ok` with the ignore entry. Run on 2026-10-20 with the
+  `cargo-deny` 0.19.0 installed on the development machine; CI runs the
+  version pinned in the "CI and GitHub delivery" section, which this run does
+  not cover.
 
 ## Agent Client Protocol — check of 2026-09-14
 
@@ -1805,10 +1896,12 @@ Facts that
 [ADR-0041](adr/0041-registre-d-actions-menus-et-raccourcis.md),
 [ADR-0042](adr/0042-revue-sur-place-des-operations-destructrices.md) and
 [ADR-0043](adr/0043-multi-fenetre.md) rely on. On the Tauri side, read in the
-source of the `Cargo.lock` versions unpacked in the local registry: `tauri`
-2.11.5, `tauri-utils` 2.9.3, `tauri-runtime-wry` 2.11.4, `wry` 0.55.1, `muda`
+source of the versions `Cargo.lock` pinned that day, unpacked in the local
+registry: `tauri` 2.11.5, `tauri-utils` 2.9.3, `tauri-runtime-wry` 2.11.4, `wry` 0.55.1, `muda`
 0.19.3; on the front-end side, `@codemirror/commands` 6.11.0, a transitive
-dependency of `@uiw/react-codemirror`. What tao does with `terminate:`
+dependency of `@uiw/react-codemirror`. The Emission row was re-read on
+2026-10-20 at `tauri` 2.12.1; the other rows keep the versions printed in their
+own cells. What tao does with `terminate:`
 (predefined Quit, Dock, logging out) is in the table of
 [Tauri interface and front end](#tauri-interface-and-front-end), and the behavior of
 the message dialog without a parent window under the list of ADR-0037:
@@ -1833,7 +1926,7 @@ neither is repeated here.
 | Dialog with parent window | On macOS, `rfd` presents a message dialog without a parent through `utils::sync_pop_dialog` or `async_pop_dialog` — the `CFUserNotificationDisplayAlert` alert of ADR-0037 —, and with a parent through an `NSAlert` as a sheet (`beginSheetModalForWindow`) | `rfd` 0.16.0 `src/backend/macos/message_dialog.rs`, `show` and `show_async` |
 | Window template | A window declared `"create": false` serves as a template for `WebviewWindowBuilder::from_config` | `tauri-utils`, `WindowConfig::create` |
 | Template label | `WindowBuilder::from_config` takes the label from `config.label`: a copy of the template whose `label` is changed builds a window under that label | `tauri` 2.11.5 `src/window/mod.rs`, `from_config` |
-| Emission | `Emitter` carries six emission methods: `emit`, `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`, `emit_str_filter` — forbidden by `clippy.toml` (ADR-0043) | `tauri` 2.11.5 `src/lib.rs`, trait `Emitter` |
+| Emission | `Emitter` carries six emission methods: `emit`, `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`, `emit_str_filter` — forbidden by `clippy.toml` (ADR-0043) | `tauri` 2.12.1 `src/lib.rs`, trait `Emitter` (line 961), re-read on 2026-10-20 |
 | Window events | `WindowEvent` carries `Resized`, `Moved`, `CloseRequested`, `Destroyed`, `Focused(bool)`; `RunEvent::WindowEvent` carries the window label | `tauri-runtime` 2.11.3 `src/window.rs`; `tauri` 2.11.5 `src/app.rs` |
 | Window geometry | `WindowConfig` carries `x`, `y`, `width`, `height` in logical pixels, `center` and `maximized`, applied by `from_config`; `outer_position` and `inner_size` read in physical pixels; `Monitor` carries `work_area` and `scale_factor`, and `AppHandle::available_monitors` lists them (re-read on 2026-09-26) | `tauri-utils` 2.9.3 `src/config.rs`; `tauri-runtime-wry` 2.11.4 `src/lib.rs`; `tauri` 2.11.5 `src/webview/webview_window.rs`, `src/window/mod.rs`, `src/app.rs` |
 | PostgreSQL | `DROP TABLE` defaults to `RESTRICT`; `TRUNCATE` refuses a referenced table and is transactional; DDL is transactional except for database and tablespace | [sql-droptable](https://www.postgresql.org/docs/18/sql-droptable.html), [sql-truncate](https://www.postgresql.org/docs/18/sql-truncate.html), [wiki](https://wiki.postgresql.org/wiki/Transactional_DDL_in_PostgreSQL:_A_Competitive_Analysis) — documentation version 18 |

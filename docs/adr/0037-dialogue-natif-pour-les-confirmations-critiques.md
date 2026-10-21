@@ -1,6 +1,6 @@
 # ADR-0037 — A critical decision is confirmed in a native dialog of the host, never in the webview
 
-**Status:** proposed · **Date:** 2026-09-25
+**Status:** accepted (2026-10-20) · **Date:** 2026-09-25
 
 **Clarifies:** [ADR-0029](0029-interface-tauri-shadcn.md), whose Consequences
 name the new surface — "an XSS in the webview reaches the Tauri commands" —

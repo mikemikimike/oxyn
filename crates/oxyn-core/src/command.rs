@@ -579,6 +579,12 @@ impl Command {
     ///   an agent that declared the endpoint it speaks through would have an
     ///   exfiltration channel, and it is the category of action it has no
     ///   legitimate use for.
+    /// * [`SetSessionContext`](Self::SetSessionContext) answers `Read`,
+    ///   whereas a typed `USE` inside an [`Execute`](Self::Execute) is
+    ///   [`Unknown`](StatementIntent::Unknown): the selector goes through the
+    ///   session, which records the new context, and the typed statement does
+    ///   not. That is why the selector is the user's path, and why the
+    ///   `PolicyGate` refuses the typed one to an agent.
     #[must_use]
     pub fn intent(&self) -> StatementIntent {
         match self {
@@ -691,6 +697,22 @@ impl Command {
     pub fn controls_transaction(&self) -> bool {
         match self {
             Self::Execute { request, .. } => request.transaction_control,
+            _ => false,
+        }
+    }
+
+    /// Does the command change the session's current database or schema by
+    /// typing it (`USE ...`)?
+    ///
+    /// Only an [`Execute`](Self::Execute) can, and only as its reclassified
+    /// request says: see [`ExecRequest::context_change`]. The declared way to
+    /// change the context is [`SetSessionContext`](Self::SetSessionContext),
+    /// which the session records: a typed `USE` would move the server's state
+    /// without the session knowing.
+    #[must_use]
+    pub fn changes_context(&self) -> bool {
+        match self {
+            Self::Execute { request, .. } => request.context_change,
             _ => false,
         }
     }

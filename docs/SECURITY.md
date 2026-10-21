@@ -313,7 +313,8 @@ What enters Oxyn and is untrusted, in order of underestimation:
    label nor a target window). It reaches nothing of another window.
    One caveat, which comes down to a secret: Tauri's `start_dragging` and
    `internal_toggle_maximize` accept the label of another
-   window (`tauri` 2.11.5, `src/window/plugin.rs`, `get_window`). No
+   window (`tauri` 2.12.1, `src/window/plugin.rs`, `get_window`, lines 13-21,
+   read on 2026-10-20 — to re-read at every bump of `tauri`). No
    command therefore returns to the front end the label of a window, not even its
    own; a command that did would give an XSS the means to move or
    maximize the other windows.
@@ -329,9 +330,17 @@ What enters Oxyn and is untrusted, in order of underestimation:
    `style-src` keeps `'self' 'unsafe-inline'` there: components insert a
    `<style>` at runtime, into the webview's DOM, whereas Tauri only puts
    a `nonce` on the `<style>` elements already present, as text, in the static
-   HTML of the build — and that file contains none (checked in the
-   source of `tauri-codegen` 2.6.3 and `tauri-utils` 2.9.3, the versions in
-   `Cargo.lock`, on 2026-09-24 — [I-12](../CLAUDE.md#i-12)). Depending on it:
+   HTML of the build — and that file contains none (checked on 2026-09-24,
+   and again on 2026-10-20 on the build of `e9cd78f`: its only HTML file,
+   `apps/desktop/dist/client/index.html`, holds no `<style`).
+   The Tauri side is checked in the source of `tauri-codegen` 2.7.1
+   (`src/context.rs`, which calls `inject_nonce_token` on each HTML asset),
+   `tauri-utils` 2.10.1 (`src/html2.rs`, `inject_nonce_token`, which selects
+   the `style` elements of the parsed file) and `tauri` 2.12.1
+   (`src/manager/mod.rs`, `replace_csp_nonce`, which adds a `'nonce-…'` source
+   per token found in the served file), the versions in `Cargo.lock`, on
+   2026-10-20 — to re-read at every bump of `tauri`
+   ([I-12](../CLAUDE.md#i-12)). Depending on it:
 
    - `ChartStyle` (`apps/desktop/src/components/ui/chart.tsx`);
    - the CodeMirror SQL editor (`sql-editor.tsx`), through `style-mod` 4.1.3;
@@ -573,9 +582,21 @@ what will keep it valid.
   The only one today is RUSTSEC-2024-0429 — an *unsoundness* in
   `glib::VariantStrIter`, reached through `tauri` → `gtk 0.18` → `atk` → `glib 0.18`.
   The fix is in `glib 0.20`, which `gtk 0.18` refuses: nothing can be upgraded
-  here until Tauri changes GTK. This code is Linux's; it
-  is not compiled on macOS, the only target shipped today, and Oxyn
-  does not call this iterator. To reopen at the next Tauri upgrade.
+  here until Tauri changes GTK. The Linux packages (x86_64 and aarch64: deb,
+  rpm, AppImage) ship `glib 0.18.5`; macOS does not compile it. The defect is a
+  NULL dereference: the iterator passes the address of a null string pointer to
+  a C function through a shared reference, the compiler may ignore the write,
+  and `CStr::from_ptr` then receives NULL. It sits in five methods (`next`,
+  `nth`, `last`, `next_back`, `nth_back`), and none of them is reachable in
+  what ships: `Variant::array_iter_str` (`glib-0.18.5/src/variant.rs`, lines
+  843-855) is the only function that builds a `VariantStrIter`, whose
+  constructor is `pub(crate)` (`src/variant_iter.rs`, line 109), and nothing
+  calls it — neither the 634 external crates of the normal and build
+  dependencies of `oxyn-desktop` on the two Linux targets, nor the workspace.
+  Checked on 2026-10-20 ([I-12](../CLAUDE.md#i-12)). The check is redone at
+  every bump of `tauri`, `gtk`, `wry`, `muda`, `tao` or `webkit2gtk`, since a
+  new release could add a caller; the entry is dropped once the chain reaches
+  `glib` 0.20 or later. `deny.toml` holds the command, next to the entry.
 
 See also [`/securite`](../.claude/commands/securite.md) and
 [the checklist](../.claude/checklists/revue-securite.md).

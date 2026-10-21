@@ -1,6 +1,6 @@
 # ADR-0051 — Oxyn updates itself from the GitHub Releases, in Rust only, and installs on quit
 
-**Status:** proposed · **Date:** 2026-10-02
+**Status:** accepted (2026-10-20) · **Date:** 2026-10-02
 
 ## Context
 

@@ -1,4 +1,4 @@
-<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="921dff9e9ab4" -->
+<!-- oxyn-translation source="docs/RESEARCH-NOTES.md" sha256="c5799ce7b204" -->
 
 > Traduction française de [docs/RESEARCH-NOTES.md](../../../docs/RESEARCH-NOTES.md). **La version anglaise fait foi.**
 
@@ -124,6 +124,41 @@ revérifier à chaque montée de `tauri` » tiennent toujours : `tauri` 2.12.1
 `src/path/desktop.rs` calcule `app_log_dir` comme avant, et `tao` 0.37.1
 n'enregistre toujours que `applicationWillTerminate:`, et s'arrête par
 `[NSApp stop:]` (`src/platform_impl/macos/app_delegate.rs`, `app_state.rs`).
+
+Relus le 2026-10-20, à `tauri` 2.12.1, `tauri-codegen` 2.7.1 et `tauri-utils`
+2.10.1 (`Cargo.lock`), trois autres faits tiennent toujours, à revérifier à
+chaque montée de `tauri` ; le reste de ce fichier garde les versions imprimées
+dans ses propres cellules :
+
+- le fait sur `Emitter` : `tauri` 2.12.1 `src/lib.rs`, `pub trait Emitter` à la
+  ligne 961, toujours exactement six méthodes d'émission (`emit` 974,
+  `emit_str` 981, `emit_to` 1009, `emit_str_to` 1020, `emit_filter` 1047,
+  `emit_str_filter` 1058), que `clippy.toml` interdit
+  ([ADR-0043](adr/0043-multi-fenetre.md)) ; utilisé dans `clippy.toml` et dans
+  [SECURITY](SECURITY.md#surface-dentrée) ;
+- la réserve sur le libellé de fenêtre : `tauri` 2.12.1 `src/window/plugin.rs`,
+  `get_window` (lignes 13-21) cherche la fenêtre par le libellé que l'appelant
+  envoie et ne se rabat sur la fenêtre appelante que sans libellé ou avec un
+  libellé vide ; `start_dragging` (`setter!`, ligne 165) et
+  `internal_toggle_maximize` (lignes 220-233) passent tous deux par elle ;
+  utilisé dans [SECURITY](SECURITY.md#surface-dentrée) ;
+- le nonce de style : `tauri-codegen` 2.7.1 `src/context.rs` importe
+  `inject_nonce_token` depuis `tauri_utils::html2` (ligne 28) et l'appelle sur
+  chaque ressource HTML analysée (ligne 80 ; un second appel, sur la page
+  d'isolation, à la ligne 117) ; `tauri-utils` 2.10.1 `src/html2.rs` :
+  `inject_nonce_token` (lignes 67-77) sélectionne les éléments `style` du
+  document statique analysé (ligne 75) et `inject_nonce` saute ceux qui portent
+  déjà un nonce (lignes 51-60) ; à l'exécution, `tauri` 2.12.1
+  `src/manager/mod.rs` appelle `replace_csp_nonce` (l'appel de `style-src` à la
+  ligne 97, celui de `script-src` à la ligne 87 ; définie aux lignes 126-153), qui ajoute des sources `'nonce-…'` à `style-src` seulement
+  quand la ressource servie contenait le jeton ou que des empreintes de style
+  existent (ligne 140). Seuls les éléments `style` du HTML statique reçoivent un
+  nonce : un `<style>` inséré dans le DOM à l'exécution n'en reçoit pas.
+  `src/html.rs` de `tauri-utils` (fonctionnalité `html-manipulation`) porte la
+  même logique mais n'est pas le module qu'utilise `tauri-codegen`. Ce que
+  contient le HTML statique du build d'Oxyn est une propriété de ce build, pas
+  de Tauri : cela reste daté là où [SECURITY](SECURITY.md#surface-dentrée) le
+  énonce.
 
 Comportements du dialogue de message sur lesquels repose
 [ADR-0037](adr/0037-dialogue-natif-pour-les-confirmations-critiques.md),
@@ -618,6 +653,62 @@ Corrigé par `cargo update -p rustls` : **0.23.43 → 0.23.45**, mise à jour de
 correctif dans la même plage sémantique. Aucun manifeste modifié, seul
 `Cargo.lock`. Vérifié le 2026-09-14 : `cargo deny check advisories` ne signale
 plus rien.
+
+## `glib` 0.18 — avis RUSTSEC-2024-0429, vérifié le 2026-10-20
+
+`cargo deny` signale **RUSTSEC-2024-0429** (`informational = "unsound"`) sur
+`glib` 0.18.5, le seul `glib` de `Cargo.lock`. `deny.toml` l'ignore avec une
+raison écrite, que [SECURITY](SECURITY.md#dépendances) reprend. Chaque fait
+ci-dessous a été lu le 2026-10-20 et est **à relire à chaque montée de `tauri`,
+`gtk`, `wry`, `muda`, `tao` ou `webkit2gtk`**.
+
+- **L'avis** : fichier `crates/glib/RUSTSEC-2024-0429.md` de la base d'avis
+  RustSec, copie locale au HEAD `550efd3d587a29b2e2c2b21b17a440da4fede999` du
+  2026-10-08 (rien n'a été récupéré le 2026-10-20). Publié le 2024-03-30, alias
+  GHSA-wrw7-89jp-8q8g. Fonctions affectées : `glib::VariantStrIter::next`,
+  `nth`, `last`, `next_back` et `nth_back`, dans `>=0.15.0,<0.20.0` ; corrigé
+  dans `>=0.20.0` ; non affecté en dessous de `0.15.0`. Le mécanisme :
+  `impl_get` passe `&p`, une référence immuable vers un `*mut c_char` nul,
+  comme paramètre de sortie de la fonction C variadique `g_variant_get_child` ;
+  le compilateur peut ignorer cette écriture, et `CStr::from_ptr` reçoit alors
+  NULL, ce qui plante par déréférencement de NULL. Le correctif passe `&mut p`.
+- **Pourquoi rien ne peut être monté** : `gtk` 0.18.2 (`Cargo.lock`) déclare
+  `glib = "0.18"` dans son propre `Cargo.toml` (`[dependencies.glib]`, source du
+  registre), ce qui exclut 0.20.
+- **Où il est compilé** : `cargo tree --offline -p oxyn-desktop --target
+  <t> -i glib@0.18.5 -e normal` affiche le même arbre pour
+  `x86_64-unknown-linux-gnu` et `aarch64-unknown-linux-gnu` : `glib` ←
+  `atk` 0.18.2 ← `gtk` 0.18.2 ← `muda` 0.20.0, `tao` 0.37.1, `tauri-runtime`
+  2.12.1, `tauri-runtime-wry` 2.12.1, `webkit2gtk` 2.0.2, `wry` 0.57.0 et
+  `tauri` 2.12.1. `cairo-rs`, `gdk`, `gdk-pixbuf`, `gdkx11`, `gio`,
+  `javascriptcore-rs`, `pango` et `soup3` dépendent aussi directement de
+  `glib`. Avec `-e normal,build` sur `aarch64-apple-darwin` et
+  `x86_64-apple-darwin`, la même commande affiche « nothing to print » : macOS
+  ne le compile pas. Les paquets Linux qui le livrent sont le job `paquets` de
+  `.github/workflows/livraison.yml` (commits `2a6f563` du 2026-09-24 pour
+  x86_64 et `a8039da` du 2026-10-04 pour aarch64).
+- **Source de `glib` 0.18.5** (registre) : `src/variant_iter.rs` porte
+  `VariantStrIter` à la ligne 102, son constructeur `pub(crate) fn new` à la
+  ligne 109, `impl_get` à la ligne 118, `&p` à la ligne 126 et
+  `CStr::from_ptr` à la ligne 129. `src/variant.rs` : `Variant::array_iter_str`
+  (lignes 843-855, la construction à la ligne 854) est la seule fonction qui
+  construise un `VariantStrIter` ; le type est réexporté à la ligne 40 de
+  `src/lib.rs`, et tout autre usage est sous `#[cfg(test)]` (`variant.rs` à
+  partir de la ligne 2191, `variant_iter.rs` à partir de la ligne 203).
+- **Atteignabilité** : `cargo tree --offline -p oxyn-desktop --target <t> -e
+  normal,build --prefix none --format '{p}'` sur les deux cibles Linux liste
+  634 versions de crates externes distinctes dans leur union (crates du
+  workspace exclues, dépendances de développement non examinées). Une recherche
+  récursive de `array_iter_str` et de `VariantStrIter` dans les sources du
+  registre de chacune d'elles ne trouve que `lib.rs`, `variant.rs` et
+  `variant_iter.rs` de `glib` 0.18.5 ; il n'y a non plus aucune occurrence dans
+  `crates/`, `drivers/` ni `apps/`. Aucun code livré ne construit un
+  `VariantStrIter` : les cinq méthodes sont inatteignables.
+- **La porte** : `cargo deny --all-features check advisories --disable-fetch`
+  affiche `advisories ok` avec l'entrée ignorée. Exécuté le 2026-10-20 avec le
+  `cargo-deny` 0.19.0 installé sur la machine de développement ; la CI exécute
+  la version épinglée dans la section « CI et livraison GitHub », que cette
+  exécution ne couvre pas.
 
 ## Agent Client Protocol — vérification du 2026-09-14
 
@@ -1820,10 +1911,12 @@ Faits sur lesquels reposent
 [ADR-0041](adr/0041-registre-d-actions-menus-et-raccourcis.md),
 [ADR-0042](adr/0042-revue-sur-place-des-operations-destructrices.md) et
 [ADR-0043](adr/0043-multi-fenetre.md). Côté Tauri, lus dans le source des
-versions de `Cargo.lock` dépaquetées dans le registre local : `tauri` 2.11.5,
-`tauri-utils` 2.9.3, `tauri-runtime-wry` 2.11.4, `wry` 0.55.1, `muda` 0.19.3 ;
+versions que `Cargo.lock` épinglait ce jour-là, dépaquetées dans le registre
+local : `tauri` 2.11.5, `tauri-utils` 2.9.3, `tauri-runtime-wry` 2.11.4, `wry` 0.55.1, `muda` 0.19.3 ;
 côté front, `@codemirror/commands` 6.11.0, dépendance transitive de
-`@uiw/react-codemirror`. Ce que tao fait de `terminate:` (Quit prédéfini, Dock,
+`@uiw/react-codemirror`. La ligne Émission a été relue le 2026-10-20 à `tauri`
+2.12.1 ; les autres lignes gardent les versions imprimées dans leurs propres
+cellules. Ce que tao fait de `terminate:` (Quit prédéfini, Dock,
 fermeture de session) est au tableau d'[Interface Tauri et front](#interface-tauri-et-front),
 et le comportement du dialogue de message sans fenêtre parente sous la liste
 d'ADR-0037 : ni l'un ni l'autre n'est repris ici.
@@ -1847,7 +1940,7 @@ d'ADR-0037 : ni l'un ni l'autre n'est repris ici.
 | Dialogue avec fenêtre parente | Sous macOS, `rfd` présente un dialogue de message sans parent par `utils::sync_pop_dialog` ou `async_pop_dialog` — l'alerte `CFUserNotificationDisplayAlert` d'ADR-0037 —, et avec parent par un `NSAlert` en feuille (`beginSheetModalForWindow`) | `rfd` 0.16.0 `src/backend/macos/message_dialog.rs`, `show` et `show_async` |
 | Gabarit de fenêtre | Une fenêtre déclarée `"create": false` sert de gabarit à `WebviewWindowBuilder::from_config` | `tauri-utils`, `WindowConfig::create` |
 | Libellé du gabarit | `WindowBuilder::from_config` prend le libellé dans `config.label` : une copie du gabarit dont on change `label` construit une fenêtre sous ce libellé | `tauri` 2.11.5 `src/window/mod.rs`, `from_config` |
-| Émission | `Emitter` porte six méthodes d'émission : `emit`, `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`, `emit_str_filter` — interdites par `clippy.toml` (ADR-0043) | `tauri` 2.11.5 `src/lib.rs`, trait `Emitter` |
+| Émission | `Emitter` porte six méthodes d'émission : `emit`, `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`, `emit_str_filter` — interdites par `clippy.toml` (ADR-0043) | `tauri` 2.12.1 `src/lib.rs`, trait `Emitter` (ligne 961), relu le 2026-10-20 |
 | Événements de fenêtre | `WindowEvent` porte `Resized`, `Moved`, `CloseRequested`, `Destroyed`, `Focused(bool)` ; `RunEvent::WindowEvent` porte le libellé de la fenêtre | `tauri-runtime` 2.11.3 `src/window.rs` ; `tauri` 2.11.5 `src/app.rs` |
 | Géométrie de fenêtre | `WindowConfig` porte `x`, `y`, `width`, `height` en pixels logiques, `center` et `maximized`, appliqués par `from_config` ; `outer_position` et `inner_size` se lisent en pixels physiques ; `Monitor` porte `work_area` et `scale_factor`, et `AppHandle::available_monitors` les liste (relu le 2026-09-26) | `tauri-utils` 2.9.3 `src/config.rs` ; `tauri-runtime-wry` 2.11.4 `src/lib.rs` ; `tauri` 2.11.5 `src/webview/webview_window.rs`, `src/window/mod.rs`, `src/app.rs` |
 | PostgreSQL | `DROP TABLE` vaut `RESTRICT` ; `TRUNCATE` refuse une table référencée et est transactionnel ; le DDL est transactionnel sauf base et tablespace | [sql-droptable](https://www.postgresql.org/docs/18/sql-droptable.html), [sql-truncate](https://www.postgresql.org/docs/18/sql-truncate.html), [wiki](https://wiki.postgresql.org/wiki/Transactional_DDL_in_PostgreSQL:_A_Competitive_Analysis) — version documentaire 18 |
@@ -2479,3 +2572,305 @@ chacune.
 |---|---|---|
 | « The latest release is the most recent non-prerelease, non-draft release, sorted by the `created_at` attribute » ; un brouillon ou une pré-version ne peut pas être marqué latest | [API REST GitHub, releases](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) | 2026-10-07 |
 | Le secours [`embedding-model-835ad140`](https://github.com/so-keyldzn/oxyn/releases/tag/embedding-model-835ad140) est publié (2026-10-07T16:45:34Z), `prerelease: true`, `draft: false`. Assets et leurs empreintes GitHub : `model.safetensors` 194 889 568 octets `sha256:f3ea88b2…903be`, `tokenizer.json` 25 301 672 octets `sha256:4f2842d5…1582f` — tous deux égaux aux valeurs épinglées —, `LICENSE-Apache-2.0.txt` 11 358 octets, `NOTICE.md` 891 octets. La dernière release est restée `v0.0.7`, et `releases/latest/download/latest.json` répond 200 | `gh api repos/so-keyldzn/oxyn/releases/tags/embedding-model-835ad140`, `…/releases/latest` ; `curl -L` | 2026-10-07 |
+
+## Famille TanStack Start et GHSA-qx66-fv34-fjm8 — vérifié le 2026-10-20
+
+Cette section remplace les versions de `@tanstack/react-start`, `react-router`,
+`router-plugin` et `@tanstack/react-store` citées dans le tableau de l'interface
+ci-dessus (`1.168.54`, `1.170.36`, `1.168.38`, `0.11.1`) : le `package.json` de
+`apps/desktop` épingle désormais les versions ci-dessous. Chaque version et chaque
+date vient du registre npm (`npm view @tanstack/<paquet> time --json`) lu le
+2026-10-20.
+
+### L'avis de sécurité
+
+| Fait | Source | Vérifié le |
+|---|---|---|
+| [GHSA-qx66-fv34-fjm8](https://github.com/advisories/GHSA-qx66-fv34-fjm8) (CVE-2026-102989), gravité **critique**, publié le 2026-10-15T20:22:20Z : un attaquant non authentifié forge l'URL d'une fonction serveur TanStack Start et, si quelqu'un l'ouvre, l'application renvoie du HTML contrôlé par l'attaquant depuis sa propre origine (XSS réfléchi). Cause : le transport des fonctions serveur passe des champs de la charge utile de la requête dans l'état interne des middlewares. Affectées : `@tanstack/start-server-core` `>= 1.143.12, < 1.169.39` et `@tanstack/react-start` `>= 1.143.12, < 1.168.60`, avec la même plage pour les paquets Solid et Vue. Le correctif limite l'entrée fournie par le client aux champs publics et valide les réponses à la frontière du serveur | `gh api /advisories/GHSA-qx66-fv34-fjm8` | 2026-10-20 |
+| `pnpm audit --prod` (l'étape `audit-npm` de `make front-controles`) sur le lockfile de `e9cd78f` signale 2 avis critiques : `@tanstack/react-start` 1.168.54 et `@tanstack/start-server-core` 1.169.35. Après le changement ci-dessous, il signale `No known vulnerabilities found` | `pnpm audit --prod` dans `apps/desktop`, avant et après | 2026-10-20 |
+| `apps/desktop/src` ne définit aucune fonction serveur (aucun `createServerFn`) et Start tourne en mode SPA avec un `index.html` prérendu (`vite.config.ts`) : la montée de version est exigée par la porte d'audit et retire le code vulnérable du graphe de dépendances, mais l'application livrée n'expose aucun point d'entrée de fonction serveur | `grep -rn createServerFn apps/desktop/src` à `e9cd78f` | 2026-10-20 |
+
+### Versions épinglées dans `apps/desktop/package.json`
+
+`@tanstack/react-start` épingle **exactement** tous les autres paquets de la famille
+(`npm view @tanstack/react-start@1.168.60 dependencies`) : un épinglage direct de
+`@tanstack/react-router` ou de `@tanstack/router-plugin` qui diffère de ce que
+`react-start` épingle laisse deux copies de `router-core` dans le lockfile.
+
+| Paquet | Version | Pourquoi cette version | Publiée | Source |
+|---|---|---|---|---|
+| `@tanstack/react-start` | `1.168.60` | première version corrigée de la ligne 1.168 (le plus petit changement qui lève l'avis) ; remplace `1.168.54` | 2026-09-30T17:48:34Z | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-start) |
+| `@tanstack/react-router` | `1.170.41` | la version exacte dont dépend `react-start` 1.168.60 ; remplace `1.170.36` | 2026-09-30T17:48:34Z | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-router) |
+| `@tanstack/router-plugin` | `1.168.42` | la version exacte dont dépend `start-plugin-core` 1.171.49 ; son pair `@tanstack/react-router ^1.170.41` accepte la ligne ci-dessus ; remplace `1.168.38` | 2026-09-30T17:48:34Z | [registre npm](https://registry.npmjs.org/@tanstack%2Frouter-plugin) |
+| `@tanstack/react-store` | `0.11.2` | `react-router` 1.170.41 exige `^0.11.2` ; avec `0.11.1` épinglée, le lockfile contenait deux copies de `@tanstack/store`. `react-form` 1.33.5 (`^0.11.0`) et `react-pacer` 0.23.0 (`^0.11.1`) acceptent `0.11.2` ; remplace `0.11.1` | 2026-09-29T07:59:49Z | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-store) |
+
+`@tanstack/react-router-devtools` reste en `1.167.2` : ses pairs
+(`@tanstack/router-core ^1.171.30`, `@tanstack/react-router ^1.170.36`) acceptent
+les nouvelles versions. `@tanstack/devtools-vite` reste en `0.8.5`, qui n'a que `vite`
+comme pair.
+
+### Résolues dans `pnpm-lock.yaml` (non épinglées dans le manifeste)
+
+Déplacées par `pnpm install` parce que `react-start` 1.168.60 les épingle exactement ;
+aucune ne demande de surcharge.
+
+| Paquet | Version résolue | Publiée |
+|---|---|---|
+| `@tanstack/start-server-core` | `1.169.39` (première version corrigée ; était `1.169.35`) | 2026-09-30T17:48:11Z |
+| `@tanstack/router-core` | `1.171.34` (était `1.171.30`) | 2026-09-30T17:50:05Z |
+| `@tanstack/start-plugin-core` | `1.171.49` (était `1.171.44`) | 2026-09-30T17:49:13Z |
+| `@tanstack/start-client-core` | `1.170.34` (était `1.170.30`) | 2026-09-30T17:47:20Z |
+| `@tanstack/react-start-client` | `1.168.39` (était `1.168.34`) | 2026-09-30T17:51:06Z |
+| `@tanstack/react-start-server` | `1.167.46` (était `1.167.41`) | 2026-09-30T17:49:03Z |
+| `@tanstack/react-start-rsc` | `0.1.59` (était `0.1.53`) | 2026-09-30T17:47:30Z |
+| `@tanstack/router-generator` | `1.167.40` (était `1.167.36`) | 2026-09-30T17:48:02Z |
+| `@tanstack/store` | `0.11.2` (seconde copie retirée ; était `0.11.1`) | 2026-09-29T08:00:31Z |
+
+### Pourquoi monter `@tanstack/react-start` seul échoue
+
+| Fait | Source | Vérifié le |
+|---|---|---|
+| Avec `react-start` seul passé en 1.168.60 (PR Dependabot #235), l'épinglage direct `react-router` 1.170.36 (`router-core` 1.171.30) reste à côté de la 1.170.41 (`router-core` 1.171.34) qu'apporte `react-start` : le lockfile contient deux copies de chacun. `pnpm audit --prod` est propre dans cet état, mais le build de production échoue à l'étape de prérendu SPA avec `Error in renderToReadableStream: TypeError: router.serverSsr.takeBufferedScripts is not a function` puis `Failed to fetch /: Internal Server Error`, l'échec du job `rust (ubuntu-24.04)` de #235. Reproduit dans une copie jetable d'`apps/desktop` hors du dépôt | `pnpm build` dans la copie jetable ; journal du job `gh api repos/so-keyldzn/oxyn/actions/jobs/118199466822/logs` | 2026-10-20 |
+| Avec les quatre épinglages ci-dessus, `pnpm build` (client, SSR et prérendu de `/`) réussit | `pnpm build` dans `apps/desktop` | 2026-10-20 |
+
+### Non retenues
+
+| Fait | Source | Vérifié le |
+|---|---|---|
+| react-start `1.168.61` (2026-10-10T07:29:33Z) est le dernier correctif de la ligne 1.168, et `1.169.3` (2026-10-16T21:10:41Z) est le dist-tag `latest` ; son pair est `vite >=8.0.0`. Aucune n'est nécessaire pour lever l'avis : une montée ultérieure passe par le flux de mise à jour habituel | `npm view @tanstack/react-start time dist-tags --json` | 2026-10-20 |
+
+## Avis RustSec sur les crates TLS et Wasmtime verrouillées — vérifié le 2026-10-20
+
+`cargo deny --all-features check` (cargo-deny 0.19.0, base d'avis lue le
+2026-10-20) échouait sur le `Cargo.lock` de `e9cd78f` avec **20 avis**, publiés
+entre le 2026-10-14 et le 2026-10-20, après le dernier passage au vert de `main`
+(2026-10-12) : quatre sur `rustls`, un sur `rustls-webpki`, un sur
+`webpki-roots`, un sur `webpki-root-certs` et treize sur `wasmtime`. Chacun est
+levé par une mise à jour compatible semver d'une crate que `Cargo.lock`
+contenait déjà. Aucun manifeste n'a changé — `wasmtime = "48.0.5"` reste le
+plancher déclaré et `Cargo.lock` résout 48.0.7 — et aucun avis n'est ignoré dans
+`deny.toml`. Après la mise à jour, la même commande affiche
+`advisories ok, bans ok, licenses ok, sources ok`. Les deux sections du
+2026-10-02 ci-dessus consignent ce qui était vrai à leur date ; les versions
+ci-dessous remplacent leurs faits sur `Cargo.lock` (`rustls` 0.23.45, Cranelift
+0.135.5).
+
+### Versions résolues dans `Cargo.lock`
+
+| Crate | Avant (`e9cd78f`) | Après | Publiée sur crates.io |
+|---|---|---|---|
+| `rustls` | 0.23.45 | **0.23.46** | 2026-10-14 |
+| `rustls-webpki` | 0.103.15 | **0.103.16** | 2026-10-20 |
+| `webpki-roots` 1.x (l'entrée 0.26.11 n'est pas touchée et dépend de la 1.x) | 1.0.9 | **1.0.10** | 2026-10-19 |
+| `webpki-root-certs` | 1.0.9 | **1.0.10** | 2026-10-19 |
+| `wasmtime`, `wasmtime-environ`, `pulley-interpreter`, `pulley-macros` et les onze crates `wasmtime-internal-*`, qui évoluent ensemble | 48.0.5 | **48.0.7** | 2026-10-19 |
+| les treize crates `cranelift-*`, qui évoluent ensemble | 0.135.5 | **0.135.7** | 2026-10-19 |
+
+32 entrées de `Cargo.lock` changent de version et rien d'autre ne bouge : aucune
+entrée n'est ajoutée ni retirée, et les seules autres lignes qui diffèrent sont
+les quatre références à `webpki-roots` qui suivent la montée de version. Aucune
+des 32 versions n'est retirée du registre. Source : `Cargo.lock` à `e9cd78f` et
+dans l'arbre de travail, API crates.io `/api/v1/crates/<crate>/<version>` pour
+les dates et l'indicateur « yanked », le tout lu le 2026-10-20.
+
+### Avis et portée dans Oxyn
+
+| Avis | Corrigé dans | Ce que cela change pour Oxyn |
+|---|---|---|
+| RUSTSEC-2026-0346 (`rustls`) | >= 0.23.46 | Le `Debug` dérivé des valeurs de session client TLS 1.2 et 1.3 affichait le secret maître ou le PSK de reprise. Seul un `ClientSessionStore` personnalisé qui les formate est touché ; aucune source Rust sous `crates/` ou `drivers/` n'en nomme. Rien à changer dans Oxyn |
+| RUSTSEC-2026-0347 (`rustls`) | >= 0.23.46 | Après un rejet d'Encrypted Client Hello, des données applicatives mises en tampon partaient vers le serveur externe. Seuls les clients qui positionnent `EchMode::Enable` sont touchés ; aucune source ne nomme `EchMode` |
+| RUSTSEC-2026-0348 (`rustls`) | >= 0.23.46 | La décompression Brotli des certificats pouvait allouer 1 Gio avant toute authentification. Seule la feature `brotli`, désactivée par défaut, est touchée : `cargo tree -e features -i rustls` montre `aws_lc_rs`, `std` et `tls12`, et la crate `brotli` du lock vient de `tauri-codegen` |
+| RUSTSEC-2026-0349 (`rustls`) | >= 0.23.46 | Un ServerHello non authentifié pouvait ne laisser aux ClientHello suivants qu'un partage de clé classique, donc une connexion sans l'échange hybride post-quantique. Il atteint un client qui conserve son magasin de reprise, ce qui est le défaut des clients rustls ; la mise à jour n'exige aucune configuration |
+| RUSTSEC-2026-0382 (`rustls-webpki`) | >= 0.103.16, < 0.104.0-alpha.1, ou >= 0.104.0-alpha.8 | Les chemins de certificats qui contiennent les clés d'intermédiaires emSign désormais publiques sont rejetés. La vérification ne fait que se durcir |
+| RUSTSEC-2026-0381 (`webpki-roots`), RUSTSEC-2026-0383 (`webpki-root-certs`) | >= 1.0.10 | La racine `emSign ECC Root CA - G3` sort de l'ensemble embarqué. `webpki-roots` alimente `sqlx-core` (PostgreSQL) et `mysql_async` (MySQL) ; `webpki-root-certs` alimente `rustls-platform-verifier`, donc `reqwest` (`oxyn-llm`, `oxyn-embed`, `tauri-plugin-updater`). Un serveur dont la chaîne se termine à cette racine n'est plus vérifié, ce qui est le résultat voulu et laisse la politique de TLS vérifié de l'ADR-0052 telle qu'elle était |
+| RUSTSEC-2026-0353, -0354, -0355, -0356, -0357, -0358, -0359, -0361, -0362, -0363, -0364 (`wasmtime`) | >= 48.0.6, < 49.0.0 | Paniques de l'hôte dans le modèle de composants et l'asynchrone, un dépassement de pile à la libération d'une longue chaîne de types récursifs, l'exigence de point d'entrée asynchrone non appliquée, des tables de handles imputées à aucune limite, des étiquettes d'exception non alignées |
+| RUSTSEC-2026-0378, -0379 (`wasmtime`) | >= 48.0.7, < 49.0.0 | Une panique en abaissant un flux créé par l'hôte vers un invité qui attend un autre type de charge ; le backend Cranelift aarch64 pouvait sauter vers une mauvaise cible sur un grand `br_table` |
+
+`wasmtime` se trouve derrière la feature `wasm-host` d'`oxyn-plugin`, désactivée
+par défaut, qu'aucun manifeste n'active, et `oxyn-plugin` n'a lui-même aucun
+dépendant dans le workspace (`cargo tree --all-features -i oxyn-plugin`
+n'affiche que la crate) : l'application livrée ne contient aucun des treize avis.
+`--all-features`, qu'utilisent `make lint`, `make test`, `make doc` et
+`make deny`, la compile et l'audite malgré tout, si bien que ces avis font
+échouer la porte. 48.0.6 et 48.0.7 corrigent aussi des GHSA hors de cette liste
+(évasion du bac à sable du système de fichiers, wasi-http), et 48.0.7 met à jour
+son propre `rustls` en 0.23.46. Sources : la base d'avis RustSec,
+`crates/<crate>/RUSTSEC-2026-<numéro>.md`, commit `e6f94f37`, lue le
+2026-10-20, avec [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382)
+comme entrée publiée ce jour-là ; notes de version de
+[rustls 0.23.46](https://github.com/rustls/rustls/releases/tag/v/0.23.46),
+[rustls-webpki 0.103.16](https://github.com/rustls/webpki/releases/tag/v/0.103.16),
+[webpki-roots 1.0.10](https://github.com/rustls/webpki-roots/releases/tag/v/1.0.10),
+[Wasmtime 48.0.6](https://github.com/bytecodealliance/wasmtime/releases/tag/v48.0.6)
+et [48.0.7](https://github.com/bytecodealliance/wasmtime/releases/tag/v48.0.7).
+
+## Suivi de l’audit — vérifié le 2026-10-20
+
+Faits lus en appliquant les décisions du mainteneur sur les questions ouvertes
+de l’audit. Cette section ne contient que ce qui a été lu le 2026-10-20 ; les
+lignes ailleurs dans ce fichier gardent la date de leur lecture.
+
+### Runners hébergés par GitHub sur un dépôt public
+
+| Fait | Source | Vérifié le |
+|---|---|---|
+| « Use of the standard GitHub-hosted runners is free and unlimited on public repositories. » Dans le tableau des runners standard pour les dépôts publics de la page, `macos-latest` est un runner macOS de 3 CPU (M1), 7 Go de RAM, 14 Go de SSD, arm64 | [référence des runners hébergés par GitHub](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), HTML brut récupéré par `curl -L` et lu | 2026-10-20 |
+| `so-keyldzn/oxyn` est public : `private` vaut `false` et `visibility` vaut `public` | `gh api repos/so-keyldzn/oxyn --jq '.private,.visibility'` | 2026-10-20 |
+
+Pour les pull requests, ces lignes remplacent « D'où Linux seul sur les PR » (CI
+et livraison GitHub, 2026-09-24) et « les pull requests ne construisent que
+Linux x86_64 » (sqlite-vec, 2026-10-06). Les deux restent vraies comme trace de leur propre
+date : le quota qui a causé la première a été épuisé quand le dépôt était privé.
+`qualite.yml` exécute de nouveau la matrice macOS sur les pull requests, comme
+l’a décidé l’amendement du 2026-10-20 à
+[ADR-0045](adr/0045-ci-selective-sur-les-pull-requests.md).
+
+### Versions épinglées dans les manifestes
+
+`make versions` (`.claude/hooks/verifier_versions.py --manifests`) compare chaque
+version épinglée dans `[workspace.dependencies]` du `Cargo.toml` racine, et dans
+`dependencies`, `devDependencies` et `packageManager` de
+`apps/desktop/package.json`, avec ce fichier, ligne par ligne. Le 2026-10-20, il
+a trouvé 62 des 131 versions épinglées non consignées : 18 crates et 44 paquets
+npm. Elles le sont ci-dessous, un paquet par ligne, qui est la forme que le
+contrôle lit.
+
+Chaque version épinglée a été lue dans son registre le 2026-10-20. Une crate :
+l’API de crates.io (`versions[].num` contient la version épinglée,
+`crate.max_stable_version` est la dernière publiée, `versions[].created_at` sa
+date). Un paquet npm : le document du paquet dans le registre (`versions` contient
+la version épinglée, `dist-tags.latest` est la dernière publiée, `time` sa date),
+et `npm view <paquet>@<version épinglée> version` a confirmé chacun des 44. La
+version épinglée existe dans les 62 cas et aucune crate n’est retirée (*yanked*).
+La colonne *Dernière publiée* affiche `idem` quand l’épinglage est la dernière
+version, sinon la dernière version et sa date de publication.
+
+- Une version épinglée qui n’est pas la dernière est consignée, pas relevée.
+  La relever est un changement à part, qui lit d’abord le journal des
+  modifications et déplace ensemble le manifeste et sa ligne
+  ([`/versions`](../claude/commands/versions.md)). Les tableaux consignent
+  l’écart, ils ne l’expliquent pas ; les faits de registre qui concernent
+  certains écarts suivent.
+- La ligne `wasmtime` `48.0.1` du tableau des MSRV (2026-09-05) est de
+  l’histoire : `48.0.5`, publiée le 2026-10-02, est ce que `Cargo.toml` épingle.
+  Son `rust-version` est `1.95.0` (API crates.io, 2026-10-20), le plancher que
+  donne le commentaire de `Cargo.toml`. `50.0.0`, publiée le 2026-10-20, déclare
+  `1.97.0`.
+- `rusqlite` `0.37.0` n’est pas répétée ici : elle est déjà consignée comme
+  épinglage délibéré, avec sa raison, dans le tableau des MSRV ci-dessus, dans le
+  commentaire de `Cargo.toml` et dans
+  [ADR-0010](adr/0010-contraintes-natives-sqlite.md).
+- `@vitest/browser` et `@vitest/coverage-v8` `4.1.11` déclarent le pair exact
+  `vitest` `4.1.11`, et `@storybook/addon-vitest@10.6.0` déclare
+  `vitest ^3.0.0 || ^4.0.0` (`npm view <paquet>@<version> peerDependencies`,
+  2026-10-20) : ils restent sur la ligne 4 avec `vitest`, comme le dit le
+  tableau npm ci-dessus.
+- npm marque `eslint@9.39.5` comme obsolète : « This version is no longer
+  supported. Please see https://eslint.org/version-support for other options. »
+  (`npm view eslint@9.39.5 deprecated`, 2026-10-20).
+  `@tanstack/eslint-config@0.4.0` déclare le pair `eslint ^9.0.0 || ^10.0.0` et
+  `eslint-plugin-storybook@10.6.0` déclare `eslint >=8`. Consigné, sans suite
+  donnée.
+- `@tanstack/react-start` est la seule ligne du tableau npm ci-dessous que le
+  contrôle n'a pas signalée : la ligne TanStack du tableau du front ci-dessus la
+  nomme déjà, mais avec deux autres paquets sur la même ligne. Elle a ici sa
+  propre ligne parce qu'une montée de version de la famille TanStack change
+  plusieurs versions à la fois et que ce fichier consigne un paquet par ligne. Le
+  2026-10-20, `pnpm audit --prod` (l'étape `audit-npm` de la CI, exécution
+  `39470967933`) signale l'avis critique
+  [GHSA-qx66-fv34-fjm8](https://github.com/advisories/GHSA-qx66-fv34-fjm8)
+  contre `@tanstack/react-start` `>=1.143.12 <1.168.60`, corrigé en `1.168.60`
+  (publiée le 2026-09-30), et contre `@tanstack/start-server-core`, transitive,
+  `>=1.143.12 <1.169.39`. L'épinglage `1.168.54` est dans la plage vulnérable :
+  consigné, pas relevé ici, et la montée de version déplace les paquets TanStack
+  ensemble.
+
+Chaque version signalée par le contrôle était lisible dans son registre : aucune
+ne figure donc sous une exemption.
+
+#### Crates
+
+| Crate | Épinglée | Dernière publiée | Registre | Vérifié le |
+|---|---|---|---|---|
+| `async-trait` | `0.1.92` | idem | [API crates.io](https://crates.io/api/v1/crates/async-trait) | 2026-10-20 |
+| `bitflags` | `2.13.1` | `2.13.2` (2026-09-10) | [API crates.io](https://crates.io/api/v1/crates/bitflags) | 2026-10-20 |
+| `chrono` | `0.4.45` | idem | [API crates.io](https://crates.io/api/v1/crates/chrono) | 2026-10-20 |
+| `futures` | `0.3.34` | idem | [API crates.io](https://crates.io/api/v1/crates/futures) | 2026-10-20 |
+| `indexmap` | `2.14.2` | idem | [API crates.io](https://crates.io/api/v1/crates/indexmap) | 2026-10-20 |
+| `parking_lot` | `0.12.5` | idem | [API crates.io](https://crates.io/api/v1/crates/parking_lot) | 2026-10-20 |
+| `serde_json` | `1.0.151` | `1.0.154` (2026-10-11) | [API crates.io](https://crates.io/api/v1/crates/serde_json) | 2026-10-20 |
+| `smallvec` | `1.16.0` | `1.16.3` (2026-10-10) | [API crates.io](https://crates.io/api/v1/crates/smallvec) | 2026-10-20 |
+| `url` | `2.5.8` | idem | [API crates.io](https://crates.io/api/v1/crates/url) | 2026-10-20 |
+| `tempfile` | `3.27.0` | idem | [API crates.io](https://crates.io/api/v1/crates/tempfile) | 2026-10-20 |
+| `directories` | `6.0.0` | idem | [API crates.io](https://crates.io/api/v1/crates/directories) | 2026-10-20 |
+| `secrecy` | `0.10.3` | idem | [API crates.io](https://crates.io/api/v1/crates/secrecy) | 2026-10-20 |
+| `zeroize` | `1.9.0` | `1.9.1` (2026-10-06) | [API crates.io](https://crates.io/api/v1/crates/zeroize) | 2026-10-20 |
+| `schemars` | `1.2.2` | `1.2.3` (2026-10-12) | [API crates.io](https://crates.io/api/v1/crates/schemars) | 2026-10-20 |
+| `wasmtime` | `48.0.5` | `50.0.0` (2026-10-20) | [API crates.io](https://crates.io/api/v1/crates/wasmtime) | 2026-10-20 |
+| `tracing-subscriber` | `0.3.23` | idem | [API crates.io](https://crates.io/api/v1/crates/tracing-subscriber) | 2026-10-20 |
+| `insta` | `1.48.0` | `1.49.0` (2026-10-03) | [API crates.io](https://crates.io/api/v1/crates/insta) | 2026-10-20 |
+| `rstest` | `0.26.1` | `0.28.0` (2026-10-18) | [API crates.io](https://crates.io/api/v1/crates/rstest) | 2026-10-20 |
+
+#### Paquets npm
+
+| Paquet | Épinglée | Dernière publiée | Registre | Vérifié le |
+|---|---|---|---|---|
+| `@codemirror/language` | `6.12.4` | `6.13.1` (2026-10-07) | [registre npm](https://registry.npmjs.org/@codemirror%2Flanguage) | 2026-10-20 |
+| `@codemirror/state` | `6.7.4` | `6.7.6` (2026-09-22) | [registre npm](https://registry.npmjs.org/@codemirror%2Fstate) | 2026-10-20 |
+| `@codemirror/view` | `6.43.11` | `6.43.15` (2026-10-19) | [registre npm](https://registry.npmjs.org/@codemirror%2Fview) | 2026-10-20 |
+| `@date-fns/tz` | `1.5.0` | idem | [registre npm](https://registry.npmjs.org/@date-fns%2Ftz) | 2026-10-20 |
+| `@fontsource-variable/geist` | `5.3.0` | idem | [registre npm](https://registry.npmjs.org/@fontsource-variable%2Fgeist) | 2026-10-20 |
+| `@fontsource-variable/geist-mono` | `5.3.0` | idem | [registre npm](https://registry.npmjs.org/@fontsource-variable%2Fgeist-mono) | 2026-10-20 |
+| `@lezer/highlight` | `1.2.3` | `1.2.5` (2026-09-28) | [registre npm](https://registry.npmjs.org/@lezer%2Fhighlight) | 2026-10-20 |
+| `@shadcn/react` | `0.3.1` | idem | [registre npm](https://registry.npmjs.org/@shadcn%2Freact) | 2026-10-20 |
+| `@tanstack/react-form` | `1.33.5` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-form) | 2026-10-20 |
+| `@tanstack/react-pacer` | `0.23.0` | `0.24.1` (2026-10-05) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-pacer) | 2026-10-20 |
+| `@tanstack/react-router` | `1.170.41` | `1.170.45` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-router) | 2026-10-20 |
+| `@tanstack/react-start` | `1.168.60` | `1.169.3` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-start) | 2026-10-20 |
+| `@tanstack/react-virtual` | `3.14.13` | `3.14.21` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-virtual) | 2026-10-20 |
+| `@tauri-apps/plugin-dialog` | `2.7.3` | `2.8.3` (2026-10-14) | [registre npm](https://registry.npmjs.org/@tauri-apps%2Fplugin-dialog) | 2026-10-20 |
+| `class-variance-authority` | `0.7.1` | idem | [registre npm](https://registry.npmjs.org/class-variance-authority) | 2026-10-20 |
+| `cmdk` | `1.1.1` | idem | [registre npm](https://registry.npmjs.org/cmdk) | 2026-10-20 |
+| `cn` | `0.3.0` | `0.5.0` (2026-10-16) | [registre npm](https://registry.npmjs.org/cn) | 2026-10-20 |
+| `date-fns` | `4.4.0` | idem | [registre npm](https://registry.npmjs.org/date-fns) | 2026-10-20 |
+| `embla-carousel-react` | `8.6.0` | idem | [registre npm](https://registry.npmjs.org/embla-carousel-react) | 2026-10-20 |
+| `input-otp` | `1.5.0` | idem | [registre npm](https://registry.npmjs.org/input-otp) | 2026-10-20 |
+| `react-day-picker` | `10.0.1` | `10.0.2` (2026-09-30) | [registre npm](https://registry.npmjs.org/react-day-picker) | 2026-10-20 |
+| `react-resizable-panels` | `4.12.4` | `4.14.7` (2026-10-20) | [registre npm](https://registry.npmjs.org/react-resizable-panels) | 2026-10-20 |
+| `recharts` | `3.8.0` | `3.10.1` (2026-07-25) | [registre npm](https://registry.npmjs.org/recharts) | 2026-10-20 |
+| `tw-animate-css` | `1.4.0` | idem | [registre npm](https://registry.npmjs.org/tw-animate-css) | 2026-10-20 |
+| `@storybook/addon-a11y` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-a11y) | 2026-10-20 |
+| `@storybook/addon-docs` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-docs) | 2026-10-20 |
+| `@storybook/addon-vitest` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/@storybook%2Faddon-vitest) | 2026-10-20 |
+| `@tanstack/devtools-vite` | `0.8.5` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Fdevtools-vite) | 2026-10-20 |
+| `@tanstack/eslint-config` | `0.4.0` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Feslint-config) | 2026-10-20 |
+| `@tanstack/react-devtools` | `0.10.12` | `0.10.13` (2026-09-23) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-devtools) | 2026-10-20 |
+| `@tanstack/react-query-devtools` | `5.102.8` | `5.104.5` (2026-10-19) | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-query-devtools) | 2026-10-20 |
+| `@tanstack/react-router-devtools` | `1.167.2` | idem | [registre npm](https://registry.npmjs.org/@tanstack%2Freact-router-devtools) | 2026-10-20 |
+| `@tanstack/router-plugin` | `1.168.42` | `1.168.47` (2026-10-16) | [registre npm](https://registry.npmjs.org/@tanstack%2Frouter-plugin) | 2026-10-20 |
+| `@testing-library/dom` | `10.4.2` | idem | [registre npm](https://registry.npmjs.org/@testing-library%2Fdom) | 2026-10-20 |
+| `@testing-library/react` | `16.3.3` | idem | [registre npm](https://registry.npmjs.org/@testing-library%2Freact) | 2026-10-20 |
+| `@types/node` | `26.5.1` | `26.6.5` (2026-10-09) | [registre npm](https://registry.npmjs.org/@types%2Fnode) | 2026-10-20 |
+| `@types/react` | `19.3.0` | idem | [registre npm](https://registry.npmjs.org/@types%2Freact) | 2026-10-20 |
+| `@types/react-dom` | `19.3.0` | idem | [registre npm](https://registry.npmjs.org/@types%2Freact-dom) | 2026-10-20 |
+| `@vitest/browser` | `4.1.11` | `5.0.5` (2026-10-15) | [registre npm](https://registry.npmjs.org/@vitest%2Fbrowser) | 2026-10-20 |
+| `@vitest/coverage-v8` | `4.1.11` | `5.0.5` (2026-10-15) | [registre npm](https://registry.npmjs.org/@vitest%2Fcoverage-v8) | 2026-10-20 |
+| `eslint` | `9.39.5` | `10.13.0` (2026-10-16) | [registre npm](https://registry.npmjs.org/eslint) | 2026-10-20 |
+| `eslint-plugin-storybook` | `10.6.0` | `10.6.3` (2026-10-20) | [registre npm](https://registry.npmjs.org/eslint-plugin-storybook) | 2026-10-20 |
+| `jsdom` | `30.0.1` | `30.1.3` (2026-10-15) | [registre npm](https://registry.npmjs.org/jsdom) | 2026-10-20 |
+| `prettier` | `3.9.6` | `3.9.10` (2026-10-10) | [registre npm](https://registry.npmjs.org/prettier) | 2026-10-20 |
+| `prettier-plugin-tailwindcss` | `0.8.1` | idem | [registre npm](https://registry.npmjs.org/prettier-plugin-tailwindcss) | 2026-10-20 |
+
+## Vite et les avis launch-editor — vérifié le 2026-10-21
+
+L'épinglage de `vite` dans `apps/desktop` passe de `8.3.0` à `8.3.3`. Cette section
+remplace la valeur de `vite` citée dans le tableau d'interface ci-dessus (`8.3.0`) et
+dans la ligne des versions de Node (`vite 8.3.0`) : le champ `engines` de vite 8.3.3
+n'a pas été relu, la ligne de Node que prend la CI (22) ne change pas.
+
+| Fait | Source | Vérifié le |
+|---|---|---|
+| Trois avis publiés le 2026-10-20 touchent la copie de `launch-editor` embarquée dans `vite` : [GHSA-587h-7wmj-h5pm](https://github.com/advisories/GHSA-587h-7wmj-h5pm) (CVE-2026-112942, **élevé**, 19:48:25Z, contrôle `fs.existsSync()` contourné sous Windows), [GHSA-698v-4r3x-3vcv](https://github.com/advisories/GHSA-698v-4r3x-3vcv) (CVE-2026-112943, modéré, 18:30:24Z, `%` non échappé par `escapeCmdArgs()` sous Windows) et [GHSA-r825-w8mm-5pxw](https://github.com/advisories/GHSA-r825-w8mm-5pxw) (CVE-2026-112944, modéré, 19:51:52Z, mauvaise interprétation d'un drapeau de la ligne de commande de l'éditeur). Pour la ligne 8.3, la plage vulnérable est `>= 8.3.0, <= 8.3.2` et la première version corrigée est `8.3.3` | `gh api /advisories/<id>` | 2026-10-21 |
+| `vite` `8.3.3` a été publié le 2026-10-06T04:10:19Z, `8.3.4` le 2026-10-08T12:07:04Z et `8.3.5`, dist-tag `latest`, le 2026-10-21T06:38:54Z. `8.3.3` est la plus petite version corrigée de la ligne, d'où l'épinglage ; une montée ultérieure passe par le flux de mise à jour habituel | `npm view vite time dist-tags --json` | 2026-10-21 |
+| Avec `vite` `8.3.3`, le lockfile déplace aussi `rolldown` et ses bindings de `1.2.8` à `1.2.14` et `@oxc-project/types` de `0.149.0` à `0.154.0` : ce sont des dépendances propres de vite, pas des épinglages de l'application | `pnpm install --lockfile-only` dans `apps/desktop`, diff de `pnpm-lock.yaml` | 2026-10-21 |
+| Sur ce changement, `pnpm audit --prod` répond « No known vulnerabilities found », `make front-controles` passe (Prettier, ESLint, `tsc --noEmit`, licences, audit) et `pnpm build` se termine avec le prérendu SPA de `/` | commandes lancées dans `apps/desktop` | 2026-10-21 |

@@ -69,6 +69,8 @@
 //! # }
 //! ```
 
+#[cfg(test)]
+mod busy_batch_tests;
 pub mod catalog;
 mod constraints;
 pub mod convert;

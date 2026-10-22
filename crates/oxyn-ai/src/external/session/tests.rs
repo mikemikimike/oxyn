@@ -5,9 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::v1::{
     AuthMethodAgent, AuthenticateResponse, ContentChunk, InitializeResponse, McpCapabilities,
-    NewSessionResponse, PermissionOption, PermissionOptionId, PermissionOptionKind, PromptResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, ToolCall, ToolCallId, ToolCallUpdate,
-    ToolCallUpdateFields, UsageUpdate,
+    NewSessionResponse, PermissionOption, PermissionOptionId, PermissionOptionKind, Plan,
+    PlanEntry, PlanEntryPriority, PlanEntryStatus, PromptResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, ToolCall, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
+    UsageUpdate,
 };
 use agent_client_protocol::{Agent, Channel, Error};
 use futures::FutureExt;
@@ -215,6 +216,89 @@ fn a_conversation_keeps_one_session_and_streams_what_can_be_shown() {
     assert!(
         lines.iter().all(|line| !line.contains("/etc/hosts")),
         "{lines:?}"
+    );
+}
+
+#[test]
+fn relayed_agent_content_redacts_secrets_across_chunks_and_channels() {
+    const SECRET: &str = "oxyn-stream-secret-9f0c";
+
+    let seen = Arc::new(Seen::default());
+    let observer: Arc<dyn AgentObserver> = seen.clone();
+    let environment = Environment::empty().with_declared([("OPENAI_API_KEY", SECRET)]);
+    let ended = run_redacting(
+        None,
+        environment,
+        move |channel| {
+            Agent
+                .builder()
+                .on_receive_request(
+                    async |request: InitializeRequest, responder, _cx| {
+                        responder.respond(InitializeResponse::new(request.protocol_version))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_: NewSessionRequest, responder, _cx| {
+                        responder.respond(NewSessionResponse::new(session_id()))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_: PromptRequest, responder, cx| {
+                        let text = |value: &str| {
+                            ContentChunk::new(ContentBlock::Text(TextContent::new(value)))
+                        };
+                        for update in [
+                            SessionUpdate::AgentMessageChunk(text("answer:oxyn-stream-")),
+                            SessionUpdate::AgentMessageChunk(text("secret-9f0c:end")),
+                            SessionUpdate::AgentThoughtChunk(text("thought:oxyn-stream-")),
+                            SessionUpdate::AgentThoughtChunk(text("secret-9f0c:end")),
+                            SessionUpdate::Plan(Plan::new(vec![PlanEntry::new(
+                                format!("plan: {SECRET}"),
+                                PlanEntryPriority::High,
+                                PlanEntryStatus::Pending,
+                            )])),
+                        ] {
+                            cx.send_notification(SessionNotification::new(session_id(), update))?;
+                        }
+                        responder.respond(PromptResponse::new(StopReason::EndTurn))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(channel)
+                .boxed()
+        },
+        async move |session| {
+            session
+                .prompt(&prompt("show the answer"), observer, &CancelToken::new())
+                .await
+        },
+    );
+
+    assert_eq!(ended, Ok(TurnEnd::Answered { truncated: false }));
+    let lines = seen.lines();
+    let shown = lines.join("\n");
+    assert!(shown.contains("<OPENAI_API_KEY redacted>"), "{lines:?}");
+    assert!(
+        !shown.contains(SECRET),
+        "secret reached the observer: {lines:?}"
+    );
+    let text: String = lines
+        .iter()
+        .filter_map(|line| line.strip_prefix("text:"))
+        .collect();
+    let thinking: String = lines
+        .iter()
+        .filter_map(|line| line.strip_prefix("thinking:"))
+        .collect();
+    assert_eq!(text, "answer:<OPENAI_API_KEY redacted>:end");
+    assert_eq!(thinking, "thought:<OPENAI_API_KEY redacted>:end");
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Plan") && line.contains("<OPENAI_API_KEY redacted>")),
+        "plan was not redacted: {lines:?}"
     );
 }
 

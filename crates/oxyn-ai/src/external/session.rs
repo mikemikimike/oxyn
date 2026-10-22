@@ -59,7 +59,7 @@ use oxyn_calls::OxynCalls;
 use super::confine::{Confinement, ModeWatch};
 use super::prompt::AgentPrompt;
 use super::settings::{AgentSettings, SettingChange, SettingRefused, SettingValue};
-use super::spawn::{Environment, ExitReport, Spawned, spawn};
+use super::spawn::{Environment, ExitReport, Spawned, StreamingRedactor, redact, spawn};
 use super::turn::TurnEnd;
 use super::{PermissionVerdict, check_launchable, option_for, permission_for};
 use crate::observer::{
@@ -70,6 +70,49 @@ use crate::privacy::{PrivacyTier, allows_external_agent};
 /// The longest agent message kept in an error. An agent may put a stack trace
 /// there; the user needs the first sentence, not a wall.
 const MAX_AGENT_MESSAGE: usize = 480;
+
+/// Redaction state for the streams relayed during one external-agent session.
+///
+/// Text and thought chunks are kept independently because a secret split at the
+/// end of one channel must not be joined with unrelated content from another.
+struct RelayRedactor {
+    environment: Environment,
+    text: StreamingRedactor,
+    thinking: StreamingRedactor,
+}
+
+impl RelayRedactor {
+    fn new(environment: Environment) -> Self {
+        Self {
+            environment,
+            text: StreamingRedactor::default(),
+            thinking: StreamingRedactor::default(),
+        }
+    }
+
+    fn flush(&mut self, observer: &dyn AgentObserver) {
+        let text = self.text.finish(&self.environment);
+        if !text.is_empty() {
+            observer.observe(AgentEvent::TextDelta { text: &text });
+        }
+        let thinking = self.thinking.finish(&self.environment);
+        if !thinking.is_empty() {
+            observer.observe(AgentEvent::ThinkingDelta { text: &thinking });
+        }
+    }
+
+    fn text(&mut self, chunk: &str) -> String {
+        self.text.push(chunk, &self.environment)
+    }
+
+    fn thinking(&mut self, chunk: &str) -> String {
+        self.thinking.push(chunk, &self.environment)
+    }
+
+    fn plan(&self, content: &str) -> String {
+        redact(content, &self.environment)
+    }
+}
 
 /// A way to sign in that the agent advertises.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -811,6 +854,7 @@ async fn drive(
     let watcher: Watcher = Arc::new(Mutex::new(None));
     let watch = Arc::new(ModeWatch::default());
     let liveness = Arc::new(Liveness::default());
+    let relay_redactor = Arc::new(Mutex::new(RelayRedactor::new(environment.clone())));
     let hidden = Arc::new(Mutex::new(OxynCalls::new(
         tools
             .as_ref()
@@ -827,6 +871,7 @@ async fn drive(
                 let watch = Arc::clone(&watch);
                 let hidden = Arc::clone(&hidden);
                 let liveness = Arc::clone(&liveness);
+                let relay_redactor = Arc::clone(&relay_redactor);
                 async move |notification: SessionNotification, cx| {
                     // Any update proves the agent alive, shown or not.
                     liveness.saw(&notification.update);
@@ -850,7 +895,10 @@ async fn drive(
                             .hides(&notification.update)
                         && let Some(observer) = current(&watcher)
                     {
-                        relay(&*observer, notification.update);
+                        let mut relay_redactor = relay_redactor
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner);
+                        relay(&*observer, notification.update, &mut relay_redactor);
                     }
                     Ok(())
                 }
@@ -914,6 +962,7 @@ async fn drive(
         )
         .connect_with(transport, {
             let watcher = Arc::clone(&watcher);
+            let relay_redactor = Arc::clone(&relay_redactor);
             async move |connection: ConnectionTo<Agent>| {
                 let state = State {
                     directory,
@@ -925,7 +974,15 @@ async fn drive(
                     redactor: environment,
                     ..State::default()
                 };
-                serve(&connection, inbox, &watcher, &settings, state).await;
+                serve(
+                    &connection,
+                    inbox,
+                    &watcher,
+                    &settings,
+                    state,
+                    relay_redactor,
+                )
+                .await;
                 Ok(())
             }
         })
@@ -937,12 +994,23 @@ async fn drive(
     }
 }
 
+fn flush_relay(watcher: &Watcher, relay_redactor: &Arc<Mutex<RelayRedactor>>) {
+    let Some(observer) = current(watcher) else {
+        return;
+    };
+    relay_redactor
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .flush(&*observer);
+}
+
 async fn serve(
     connection: &ConnectionTo<Agent>,
     mut inbox: mpsc::UnboundedReceiver<Request>,
     watcher: &Watcher,
     settings: &Settings,
     mut state: State,
+    relay_redactor: Arc<Mutex<RelayRedactor>>,
 ) {
     while let Some(request) = inbox.next().await {
         match request {
@@ -1013,6 +1081,7 @@ async fn serve(
                 let halted = pin!(halted(&cancel, &state.liveness, state.limits.idle));
                 match select(sent, halted).await {
                     Either::Left((answer, _)) => {
+                        flush_relay(watcher, &relay_redactor);
                         set_watcher(watcher, None);
                         // Cut short because it left its mode: said as such,
                         // not as a cancel the user did not ask for.
@@ -1035,6 +1104,7 @@ async fn serve(
                         );
                     }
                     Either::Right((halt, sent)) => {
+                        flush_relay(watcher, &relay_redactor);
                         set_watcher(watcher, None);
                         let _ = connection.send_notification(CancelNotification::new(session));
                         let _ = reply.send(match halt {
@@ -1435,16 +1505,22 @@ fn remember(settings: &Settings, update: &SessionUpdate) -> bool {
 /// Passes on what the agent streams. Only what Oxyn can show honestly: the
 /// answer, the reasoning, the kind and progress of the agent's own tools —
 /// its calls to Oxyn's are kept out before this, by [`OxynCalls`].
-fn relay(observer: &dyn AgentObserver, update: SessionUpdate) {
+fn relay(observer: &dyn AgentObserver, update: SessionUpdate, redactor: &mut RelayRedactor) {
     match update {
         SessionUpdate::AgentMessageChunk(chunk) => {
             if let ContentBlock::Text(text) = chunk.content {
-                observer.observe(AgentEvent::TextDelta { text: &text.text });
+                let text = redactor.text(&text.text);
+                if !text.is_empty() {
+                    observer.observe(AgentEvent::TextDelta { text: &text });
+                }
             }
         }
         SessionUpdate::AgentThoughtChunk(chunk) => {
             if let ContentBlock::Text(text) = chunk.content {
-                observer.observe(AgentEvent::ThinkingDelta { text: &text.text });
+                let text = redactor.thinking(&text.text);
+                if !text.is_empty() {
+                    observer.observe(AgentEvent::ThinkingDelta { text: &text });
+                }
             }
         }
         // The title is not relayed: the agent composes it, and it can quote a
@@ -1474,12 +1550,11 @@ fn relay(observer: &dyn AgentObserver, update: SessionUpdate) {
         // The whole plan, every time: the protocol has no delta and no entry
         // identifier, so the panel replaces rather than merges.
         SessionUpdate::Plan(plan) => {
-            let steps: Vec<PlanStep<'_>> = plan
+            let entries: Vec<(String, PlanPriority, PlanStatus)> = plan
                 .entries
                 .iter()
-                .map(|entry| PlanStep {
-                    content: entry.content.as_str(),
-                    priority: match entry.priority {
+                .map(|entry| {
+                    let priority = match entry.priority {
                         PlanEntryPriority::High => PlanPriority::High,
                         PlanEntryPriority::Medium => PlanPriority::Medium,
                         PlanEntryPriority::Low => PlanPriority::Low,
@@ -1487,15 +1562,24 @@ fn relay(observer: &dyn AgentObserver, update: SessionUpdate) {
                         // middle one: inventing « high » would reorder the
                         // user's attention on a guess.
                         _ => PlanPriority::Medium,
-                    },
-                    status: match entry.status {
+                    };
+                    let status = match entry.status {
                         PlanEntryStatus::Pending => PlanStatus::Pending,
                         PlanEntryStatus::InProgress => PlanStatus::InProgress,
                         PlanEntryStatus::Completed => PlanStatus::Completed,
                         // Never « completed » on a guess: a step wrongly shown
                         // as done is a step the user stops watching.
                         _ => PlanStatus::Pending,
-                    },
+                    };
+                    (redactor.plan(&entry.content), priority, status)
+                })
+                .collect();
+            let steps: Vec<PlanStep<'_>> = entries
+                .iter()
+                .map(|(content, priority, status)| PlanStep {
+                    content,
+                    priority: *priority,
+                    status: *status,
                 })
                 .collect();
             observer.observe(AgentEvent::Plan { steps: &steps });

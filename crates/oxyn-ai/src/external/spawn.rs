@@ -197,13 +197,25 @@ impl Environment {
     }
 
     /// The longest value a report must be able to redact, in bytes.
-    fn longest_secret(&self) -> usize {
+    pub(super) fn longest_secret(&self) -> usize {
         self.passed
             .values()
             .chain(self.withheld.values())
             .map(String::len)
             .max()
             .unwrap_or(0)
+    }
+
+    fn redaction_values(&self) -> impl Iterator<Item = &str> + '_ {
+        self.passed
+            .iter()
+            .chain(self.withheld.iter())
+            .filter(move |(name, value)| {
+                !value.is_empty()
+                    && (self.secret_names.contains(*name)
+                        || value.chars().count() >= MIN_REDACTED_CHARS)
+            })
+            .map(|(_, value)| value.as_str())
     }
 
     /// The names passed, for a report. **Values are never rendered** (I-03).
@@ -248,6 +260,44 @@ pub(super) fn redact(text: &str, environment: &Environment) -> String {
         }
     }
     clean
+}
+
+/// Redacts a text stream without exposing a secret split between chunks.
+///
+/// A complete secret is replaced as soon as it is available. A suffix that is
+/// a prefix of a secret stays pending until the next chunk or the end of the
+/// stream, so the already emitted prefix can never reveal part of a value.
+#[derive(Default)]
+pub(super) struct StreamingRedactor {
+    pending: String,
+}
+
+impl StreamingRedactor {
+    /// Adds one chunk and returns the safe prefix that can be shown now.
+    pub(super) fn push(&mut self, chunk: &str, environment: &Environment) -> String {
+        self.pending.push_str(chunk);
+        let safe_end = self
+            .pending
+            .char_indices()
+            .filter_map(|(start, _)| {
+                let suffix = self.pending.get(start..)?;
+                environment
+                    .redaction_values()
+                    .any(|value| suffix.len() < value.len() && value.starts_with(suffix))
+                    .then_some(start)
+            })
+            .min()
+            .unwrap_or(self.pending.len());
+        let tail = self.pending.split_off(safe_end);
+        let safe = redact(&self.pending, environment);
+        self.pending = tail;
+        safe
+    }
+
+    /// Finishes the stream and returns its pending tail after redaction.
+    pub(super) fn finish(&mut self, environment: &Environment) -> String {
+        redact(std::mem::take(&mut self.pending).as_str(), environment)
+    }
 }
 
 /// Below this, a value is too short to be a secret and too common to replace.

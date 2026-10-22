@@ -857,6 +857,123 @@ fn stopping_answers_at_once_and_tells_the_agent() {
     );
 }
 
+/// What the panel would have drawn, stopping the prompt as soon as it has drawn
+/// `stop_at`: the stop then lands while the rest of that chunk is held back.
+struct StopsOnSight {
+    seen: Seen,
+    stop_at: &'static str,
+    stop: CancelToken,
+}
+
+impl AgentObserver for StopsOnSight {
+    fn observe(&self, event: AgentEvent<'_>) {
+        let reached = matches!(&event, AgentEvent::TextDelta { text } if *text == self.stop_at);
+        self.seen.observe(event);
+        if reached {
+            self.stop.cancel();
+        }
+    }
+}
+
+#[test]
+fn stopping_mid_secret_shows_its_marker_not_its_start() {
+    const SECRET: &str = "oxyn-stream-secret-9f0c";
+
+    let token = CancelToken::new();
+    let watched = Arc::new(StopsOnSight {
+        seen: Seen::default(),
+        stop_at: "answer:",
+        stop: token.clone(),
+    });
+    let observer: Arc<dyn AgentObserver> = watched.clone();
+    let waiting: Arc<Mutex<Option<oneshot::Sender<()>>>> = Arc::default();
+    let armed = Arc::clone(&waiting);
+    let environment = Environment::empty().with_declared([("OPENAI_API_KEY", SECRET)]);
+
+    let end = run_redacting(
+        None,
+        environment,
+        move |channel| {
+            Agent
+                .builder()
+                .on_receive_request(
+                    async |request: InitializeRequest, responder, _cx| {
+                        responder.respond(InitializeResponse::new(request.protocol_version))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async |_: NewSessionRequest, responder, _cx| {
+                        responder.respond(NewSessionResponse::new(session_id()))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |_: PromptRequest, responder, cx| {
+                        let text = |value: &str| {
+                            ContentChunk::new(ContentBlock::Text(TextContent::new(value)))
+                        };
+                        // The key's first part closes each chunk, and its end
+                        // never comes: the user stops the agent in between.
+                        for update in [
+                            SessionUpdate::AgentThoughtChunk(text("thought:oxyn-stream-")),
+                            SessionUpdate::AgentMessageChunk(text("answer:oxyn-stream-")),
+                        ] {
+                            cx.send_notification(SessionNotification::new(session_id(), update))?;
+                        }
+                        let (tx, rx) = oneshot::channel();
+                        *armed.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
+                        cx.spawn(async move {
+                            let _ = rx.await;
+                            responder.respond(PromptResponse::new(StopReason::Cancelled))
+                        })
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_notification(
+                    async move |_: CancelNotification, _cx| {
+                        if let Some(tx) = waiting
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .take()
+                        {
+                            let _ = tx.send(());
+                        }
+                        Ok(())
+                    },
+                    agent_client_protocol::on_receive_notification!(),
+                )
+                .connect_to(channel)
+                .boxed()
+        },
+        async move |session| {
+            let end = session
+                .prompt(&prompt("show the key"), observer, &token)
+                .await;
+            // The next start waits for the cancelled prompt to close.
+            let _ = session.start().await;
+            end
+        },
+    );
+
+    assert_eq!(end, Ok(TurnEnd::Cancelled));
+    let lines = watched.seen.lines();
+    assert!(
+        lines.iter().all(|line| !line.contains("oxyn-stream-")),
+        "the start of the key reached the observer: {lines:?}"
+    );
+    let text: String = lines
+        .iter()
+        .filter_map(|line| line.strip_prefix("text:"))
+        .collect();
+    let thinking: String = lines
+        .iter()
+        .filter_map(|line| line.strip_prefix("thinking:"))
+        .collect();
+    assert_eq!(text, "answer:<OPENAI_API_KEY redacted>");
+    assert_eq!(thinking, "thought:<OPENAI_API_KEY redacted>");
+}
+
 #[test]
 fn a_request_to_act_on_the_machine_is_refused_and_shown() {
     let seen = Arc::new(Seen::default());

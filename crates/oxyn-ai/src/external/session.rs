@@ -71,7 +71,7 @@ use crate::privacy::{PrivacyTier, allows_external_agent};
 /// there; the user needs the first sentence, not a wall.
 const MAX_AGENT_MESSAGE: usize = 480;
 
-/// Redaction state for the streams relayed during one external-agent session.
+/// Redaction state for the streams relayed during one prompt.
 ///
 /// Text and thought chunks are kept independently because a secret split at the
 /// end of one channel must not be joined with unrelated content from another.
@@ -287,9 +287,12 @@ enum Request {
     },
 }
 
-/// Who is watching the prompt in progress. Swapped per prompt, so an update
-/// that arrives after a cancel reaches nobody.
-type Watcher = Arc<Mutex<Option<Arc<dyn AgentObserver>>>>;
+/// Who is watching the prompt in progress, and what its streams still hold
+/// back. Swapped per prompt, so an update that arrives after a cancel reaches
+/// nobody. The held-back text lives in the same slot as its observer: it is
+/// taken with it, under one lock, so nothing can be added between its flush
+/// and the clear, and the next prompt starts from nothing.
+type Watcher = Arc<Mutex<Option<(Arc<dyn AgentObserver>, RelayRedactor)>>>;
 
 /// The agent's settings as last declared: by `session/new`, then by its
 /// notifications and its answers to changes.
@@ -541,12 +544,10 @@ impl ExternalSession {
             .as_ref()
             .is_some_and(|confinement| confinement.tools_in_env);
         // The confinement comes last: a declared variable cannot undo it.
-        let mut environment = environment.with_declared(
-            confinement
-                .iter()
-                .flat_map(|confinement| confinement.env.iter())
-                .map(|(name, value)| (*name, value.clone())),
-        );
+        let mut environment = match &confinement {
+            Some(confinement) => environment.with_confinement(confinement),
+            None => environment,
+        };
         if let Some((endpoint, _)) = &tools {
             environment = if tools_in_env {
                 // Given to the child, for the configuration that names it:
@@ -854,7 +855,6 @@ async fn drive(
     let watcher: Watcher = Arc::new(Mutex::new(None));
     let watch = Arc::new(ModeWatch::default());
     let liveness = Arc::new(Liveness::default());
-    let relay_redactor = Arc::new(Mutex::new(RelayRedactor::new(environment.clone())));
     let hidden = Arc::new(Mutex::new(OxynCalls::new(
         tools
             .as_ref()
@@ -871,7 +871,6 @@ async fn drive(
                 let watch = Arc::clone(&watch);
                 let hidden = Arc::clone(&hidden);
                 let liveness = Arc::clone(&liveness);
-                let relay_redactor = Arc::clone(&relay_redactor);
                 async move |notification: SessionNotification, cx| {
                     // Any update proves the agent alive, shown or not.
                     liveness.saw(&notification.update);
@@ -893,12 +892,12 @@ async fn drive(
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
                             .hides(&notification.update)
-                        && let Some(observer) = current(&watcher)
-                    {
-                        let mut relay_redactor = relay_redactor
+                        && let Some((observer, redactor)) = watcher
                             .lock()
-                            .unwrap_or_else(PoisonError::into_inner);
-                        relay(&*observer, notification.update, &mut relay_redactor);
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .as_mut()
+                    {
+                        relay(&**observer, notification.update, redactor);
                     }
                     Ok(())
                 }
@@ -962,7 +961,6 @@ async fn drive(
         )
         .connect_with(transport, {
             let watcher = Arc::clone(&watcher);
-            let relay_redactor = Arc::clone(&relay_redactor);
             async move |connection: ConnectionTo<Agent>| {
                 let state = State {
                     directory,
@@ -974,15 +972,7 @@ async fn drive(
                     redactor: environment,
                     ..State::default()
                 };
-                serve(
-                    &connection,
-                    inbox,
-                    &watcher,
-                    &settings,
-                    state,
-                    relay_redactor,
-                )
-                .await;
+                serve(&connection, inbox, &watcher, &settings, state).await;
                 Ok(())
             }
         })
@@ -994,23 +984,12 @@ async fn drive(
     }
 }
 
-fn flush_relay(watcher: &Watcher, relay_redactor: &Arc<Mutex<RelayRedactor>>) {
-    let Some(observer) = current(watcher) else {
-        return;
-    };
-    relay_redactor
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .flush(&*observer);
-}
-
 async fn serve(
     connection: &ConnectionTo<Agent>,
     mut inbox: mpsc::UnboundedReceiver<Request>,
     watcher: &Watcher,
     settings: &Settings,
     mut state: State,
-    relay_redactor: Arc<Mutex<RelayRedactor>>,
 ) {
     while let Some(request) = inbox.next().await {
         match request {
@@ -1069,7 +1048,7 @@ async fn serve(
                 if !declared.is_empty() {
                     observer.observe(AgentEvent::AgentSettings(&declared));
                 }
-                set_watcher(watcher, Some(observer));
+                set_watcher(watcher, observer, &state.redactor);
                 state.liveness.begin();
                 let sent = connection
                     .send_request(PromptRequest::new(
@@ -1081,8 +1060,9 @@ async fn serve(
                 let halted = pin!(halted(&cancel, &state.liveness, state.limits.idle));
                 match select(sent, halted).await {
                     Either::Left((answer, _)) => {
-                        flush_relay(watcher, &relay_redactor);
-                        set_watcher(watcher, None);
+                        if let Some((observer, mut streams)) = take_watcher(watcher) {
+                            streams.flush(&*observer);
+                        }
                         // Cut short because it left its mode: said as such,
                         // not as a cancel the user did not ask for.
                         if state.watch.left() {
@@ -1104,8 +1084,11 @@ async fn serve(
                         );
                     }
                     Either::Right((halt, sent)) => {
-                        flush_relay(watcher, &relay_redactor);
-                        set_watcher(watcher, None);
+                        // What the streams held back is shown, or replaced by
+                        // its marker, before the stop is reported.
+                        if let Some((observer, mut streams)) = take_watcher(watcher) {
+                            streams.flush(&*observer);
+                        }
                         let _ = connection.send_notification(CancelNotification::new(session));
                         let _ = reply.send(match halt {
                             Halt::Cancelled => Ok(TurnEnd::Cancelled),
@@ -1480,11 +1463,23 @@ fn current(watcher: &Watcher) -> Option<Arc<dyn AgentObserver>> {
     watcher
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .clone()
+        .as_ref()
+        .map(|(observer, _)| Arc::clone(observer))
 }
 
-fn set_watcher(watcher: &Watcher, observer: Option<Arc<dyn AgentObserver>>) {
-    *watcher.lock().unwrap_or_else(PoisonError::into_inner) = observer;
+/// Starts a prompt's watch with streams that hold nothing back yet: a tail
+/// left by the previous prompt must not be glued to this answer.
+fn set_watcher(watcher: &Watcher, observer: Arc<dyn AgentObserver>, environment: &Environment) {
+    *watcher.lock().unwrap_or_else(PoisonError::into_inner) =
+        Some((observer, RelayRedactor::new(environment.clone())));
+}
+
+/// Ends the watch: the observer and what its streams held back, together.
+fn take_watcher(watcher: &Watcher) -> Option<(Arc<dyn AgentObserver>, RelayRedactor)> {
+    watcher
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
 }
 
 /// Keeps what the agent says about its settings. Says whether `update` was
